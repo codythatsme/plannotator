@@ -66,47 +66,33 @@ export function sanitizeCodexPerModel(
   return out;
 }
 
-export function normalizeAgentSettings(raw: unknown): AgentSettingsState {
-  if (!raw || typeof raw !== 'object') return initialState;
-
-  const parsed = raw as Record<string, any>;
-  const legacyProvider = typeof parsed.selectedProvider === 'string' ? parsed.selectedProvider : undefined;
-  const selectedAction: AgentAction = parsed.selectedAction === 'tour' || legacyProvider === 'tour'
-    ? 'tour'
-    : 'review';
-  const reviewEngine: AgentEngine = parsed.reviewEngine === 'codex' || legacyProvider === 'codex'
-    ? 'codex'
-    : 'claude';
-  const tourEngine: AgentEngine = parsed.tourEngine === 'codex' ? 'codex' : 'claude';
-
-  return {
-    selectedAction,
-    reviewEngine,
-    tourEngine,
-    claude: {
-      model: typeof parsed.claude?.model === 'string' ? parsed.claude.model : DEFAULT_CLAUDE_MODEL,
-      perModel: parsed.claude?.perModel ?? {},
-    },
-    codex: {
-      model: typeof parsed.codex?.model === 'string' ? parsed.codex.model : DEFAULT_CODEX_MODEL,
-      perModel: sanitizeCodexPerModel(parsed.codex?.perModel),
-    },
-    tourClaude: {
-      model: typeof parsed.tourClaude?.model === 'string' ? parsed.tourClaude.model : DEFAULT_TOUR_CLAUDE_MODEL,
-      perModel: parsed.tourClaude?.perModel ?? {},
-    },
-    tourCodex: {
-      model: typeof parsed.tourCodex?.model === 'string' ? parsed.tourCodex.model : DEFAULT_TOUR_CODEX_MODEL,
-      perModel: sanitizeCodexPerModel(parsed.tourCodex?.perModel),
-    },
-  };
-}
-
 function readCookie(): AgentSettingsState {
   const raw = getItem(COOKIE_KEY);
   if (!raw) return initialState;
   try {
-    return normalizeAgentSettings(JSON.parse(raw));
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return initialState;
+    return {
+      selectedAction: parsed.selectedAction === 'tour' ? 'tour' : 'review',
+      reviewEngine: parsed.reviewEngine === 'codex' ? 'codex' : 'claude',
+      tourEngine: parsed.tourEngine === 'codex' ? 'codex' : 'claude',
+      claude: {
+        model: typeof parsed.claude?.model === 'string' ? parsed.claude.model : DEFAULT_CLAUDE_MODEL,
+        perModel: parsed.claude?.perModel ?? {},
+      },
+      codex: {
+        model: typeof parsed.codex?.model === 'string' ? parsed.codex.model : DEFAULT_CODEX_MODEL,
+        perModel: sanitizeCodexPerModel(parsed.codex?.perModel),
+      },
+      tourClaude: {
+        model: typeof parsed.tourClaude?.model === 'string' ? parsed.tourClaude.model : DEFAULT_TOUR_CLAUDE_MODEL,
+        perModel: parsed.tourClaude?.perModel ?? {},
+      },
+      tourCodex: {
+        model: typeof parsed.tourCodex?.model === 'string' ? parsed.tourCodex.model : DEFAULT_TOUR_CODEX_MODEL,
+        perModel: sanitizeCodexPerModel(parsed.tourCodex?.perModel),
+      },
+    };
   } catch {
     return initialState;
   }

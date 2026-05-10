@@ -190,6 +190,40 @@ function ProviderBadge({ provider, engine, model, effort, reasoningEffort, fastM
   );
 }
 
+// --- Config row ---
+
+type ConfigField =
+  | { kind: 'select'; label: string; value: string; options: ReadonlyArray<{ value: string; label: string }>; onChange: (v: string) => void; disabled?: boolean }
+  | { kind: 'checkbox'; label: string; toggleLabel: string; value: boolean; onChange: (v: boolean) => void };
+
+function ConfigRow({ field }: { field: ConfigField }) {
+  return (
+    <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+      <span className="font-medium w-14">{field.label}</span>
+      {field.kind === 'select' ? (
+        <select
+          value={field.value}
+          onChange={(e) => field.onChange(e.target.value)}
+          disabled={field.disabled}
+          className="flex-1 text-[10px] px-1.5 py-0.5 rounded bg-muted/50 border border-border/40 text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30 disabled:opacity-70"
+        >
+          {field.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+      ) : (
+        <label className="flex items-center gap-1.5 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={field.value}
+            onChange={(e) => field.onChange(e.target.checked)}
+            className="w-3 h-3 accent-primary"
+          />
+          <span className={field.value ? 'text-foreground' : ''}>{field.toggleLabel}</span>
+        </label>
+      )}
+    </div>
+  );
+}
+
 // --- Job card ---
 
 function JobCard({
@@ -401,35 +435,55 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({
     [jobs],
   );
 
-  type LaunchParams = Parameters<typeof onLaunch>[0];
-  const buildReviewLaunch = (): LaunchParams => {
-    const engine = activeEngine;
-    if (engine === 'codex') {
-      return {
-        provider: 'codex',
-        label: 'Code Review',
-        model: codexModel,
-        reasoningEffort: codexReasoning,
-        ...(codexFast && { fastMode: true }),
-      };
+  const configFields: ConfigField[] = (() => {
+    if (effectiveSelectedAction === 'tour' && activeEngine === 'claude') {
+      return [
+        { kind: 'select', label: 'Model', value: tourClaudeModel, options: TOUR_CLAUDE_MODELS, onChange: setTourClaudeModel },
+        { kind: 'select', label: 'Effort', value: tourClaudeEffort, options: CLAUDE_EFFORT, onChange: setTourClaudeEffort },
+      ];
     }
-    return { provider: 'claude', label: 'Code Review', model: claudeModel, effort: claudeEffort };
-  };
-  const buildTourLaunch = (): LaunchParams => {
-    const engine = activeEngine;
-    return {
-      provider: 'tour',
-      label: 'Code Tour',
-      engine,
-      model: engine === 'claude' ? tourClaudeModel : tourCodexModel,
-      ...(engine === 'claude'
-        ? { effort: tourClaudeEffort }
-        : { reasoningEffort: tourCodexReasoning, ...(tourCodexFast && { fastMode: true }) }),
-    };
-  };
+    if (effectiveSelectedAction === 'tour' && activeEngine === 'codex') {
+      return [
+        { kind: 'select', label: 'Model', value: tourCodexModel, options: CODEX_MODELS, onChange: setTourCodexModel },
+        { kind: 'select', label: 'Reasoning', value: tourCodexReasoning, options: CODEX_REASONING, onChange: setTourCodexReasoning },
+        { kind: 'checkbox', label: 'Fast', toggleLabel: 'Fast mode', value: tourCodexFast, onChange: setTourCodexFast },
+      ];
+    }
+    if (activeEngine === 'codex') {
+      return [
+        { kind: 'select', label: 'Model', value: codexModel, options: CODEX_MODELS, onChange: setCodexModel },
+        { kind: 'select', label: 'Reasoning', value: codexReasoning, options: CODEX_REASONING, onChange: setCodexReasoning },
+        { kind: 'checkbox', label: 'Fast', toggleLabel: 'Fast mode', value: codexFast, onChange: setCodexFast },
+      ];
+    }
+    return [
+      { kind: 'select', label: 'Model', value: claudeModel, options: CLAUDE_MODELS, onChange: setClaudeModel },
+      { kind: 'select', label: 'Effort', value: claudeEffort, options: CLAUDE_EFFORT, onChange: setClaudeEffort },
+    ];
+  })();
 
+  type LaunchParams = Parameters<typeof onLaunch>[0];
   const handleLaunch = () => {
-    onLaunch(effectiveSelectedAction === 'tour' ? buildTourLaunch() : buildReviewLaunch());
+    const claudeBlock = (model: string, effort: string) => ({ model, effort });
+    const codexBlock = (model: string, reasoningEffort: string, fast: boolean) =>
+      ({ model, reasoningEffort, ...(fast && { fastMode: true }) });
+
+    let params: LaunchParams;
+    if (effectiveSelectedAction === 'tour') {
+      params = {
+        provider: 'tour',
+        label: 'Code Tour',
+        engine: activeEngine,
+        ...(activeEngine === 'claude'
+          ? claudeBlock(tourClaudeModel, tourClaudeEffort)
+          : codexBlock(tourCodexModel, tourCodexReasoning, tourCodexFast)),
+      };
+    } else {
+      params = activeEngine === 'codex'
+        ? { provider: 'codex', label: 'Code Review', ...codexBlock(codexModel, codexReasoning, codexFast) }
+        : { provider: 'claude', label: 'Code Review', ...claudeBlock(claudeModel, claudeEffort) };
+    }
+    onLaunch(params);
   };
 
   return (
@@ -465,145 +519,20 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({
           </div>
 
           <div className="mt-2 space-y-1.5">
-            <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-              <span className="font-medium w-14">Engine</span>
-              <select
-                value={activeEngine}
-                onChange={(e) => setActiveEngine(e.target.value as AgentEngine)}
-                disabled={availableEngines.length <= 1}
-                className="flex-1 text-[10px] px-1.5 py-0.5 rounded bg-muted/50 border border-border/40 text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30 disabled:opacity-70"
-              >
-                {availableEngines.map((engine) => (
-                  <option key={engine.value} value={engine.value}>{engine.label}</option>
-                ))}
-              </select>
-            </div>
+            <ConfigRow
+              field={{
+                kind: 'select',
+                label: 'Engine',
+                value: activeEngine,
+                options: availableEngines,
+                onChange: (v) => setActiveEngine(v as AgentEngine),
+                disabled: availableEngines.length <= 1,
+              }}
+            />
+            {configFields.map((field) => (
+              <ConfigRow key={field.label} field={field} />
+            ))}
           </div>
-
-          {/* Claude model + effort config */}
-          {effectiveSelectedAction === 'review' && activeEngine === 'claude' && (
-            <div className="mt-2 space-y-1.5">
-              <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-                <span className="font-medium w-14">Model</span>
-                <select
-                  value={claudeModel}
-                  onChange={(e) => setClaudeModel(e.target.value)}
-                  className="flex-1 text-[10px] px-1.5 py-0.5 rounded bg-muted/50 border border-border/40 text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30"
-                >
-                  {CLAUDE_MODELS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </select>
-              </div>
-              <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-                <span className="font-medium w-14">Effort</span>
-                <select
-                  value={claudeEffort}
-                  onChange={(e) => setClaudeEffort(e.target.value)}
-                  className="flex-1 text-[10px] px-1.5 py-0.5 rounded bg-muted/50 border border-border/40 text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30"
-                >
-                  {CLAUDE_EFFORT.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </select>
-              </div>
-            </div>
-          )}
-
-          {/* Codex model + reasoning + fast mode config */}
-          {effectiveSelectedAction === 'review' && activeEngine === 'codex' && (
-            <div className="mt-2 space-y-1.5">
-              <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-                <span className="font-medium w-14">Model</span>
-                <select
-                  value={codexModel}
-                  onChange={(e) => setCodexModel(e.target.value)}
-                  className="flex-1 text-[10px] px-1.5 py-0.5 rounded bg-muted/50 border border-border/40 text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30"
-                >
-                  {CODEX_MODELS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </select>
-              </div>
-              <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-                <span className="font-medium w-14">Reasoning</span>
-                <select
-                  value={codexReasoning}
-                  onChange={(e) => setCodexReasoning(e.target.value)}
-                  className="flex-1 text-[10px] px-1.5 py-0.5 rounded bg-muted/50 border border-border/40 text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30"
-                >
-                  {CODEX_REASONING.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </select>
-              </div>
-              <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-                <span className="font-medium w-14">Fast</span>
-                <label className="flex items-center gap-1.5 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={codexFast}
-                    onChange={(e) => setCodexFast(e.target.checked)}
-                    className="w-3 h-3 accent-primary"
-                  />
-                  <span className={codexFast ? 'text-foreground' : ''}>Fast mode</span>
-                </label>
-              </div>
-            </div>
-          )}
-
-          {/* Tour engine/model config — only shown when tour is selected */}
-          {effectiveSelectedAction === 'tour' && (
-            <div className="mt-2 space-y-1.5">
-              {/* Model selector — engine-specific options */}
-              <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-                <span className="font-medium w-14">Model</span>
-                <select
-                  value={activeEngine === 'claude' ? tourClaudeModel : tourCodexModel}
-                  onChange={(e) => (activeEngine === 'claude' ? setTourClaudeModel(e.target.value) : setTourCodexModel(e.target.value))}
-                  className="flex-1 text-[10px] px-1.5 py-0.5 rounded bg-muted/50 border border-border/40 text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30"
-                >
-                  {(activeEngine === 'claude' ? TOUR_CLAUDE_MODELS : CODEX_MODELS).map((o) => (
-                    <option key={o.value} value={o.value}>{o.label}</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Claude-only: effort level */}
-              {activeEngine === 'claude' && (
-                <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-                  <span className="font-medium w-14">Effort</span>
-                  <select
-                    value={tourClaudeEffort}
-                    onChange={(e) => setTourClaudeEffort(e.target.value)}
-                    className="flex-1 text-[10px] px-1.5 py-0.5 rounded bg-muted/50 border border-border/40 text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30"
-                  >
-                    {CLAUDE_EFFORT.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                  </select>
-                </div>
-              )}
-
-              {/* Codex-only: reasoning effort + fast mode */}
-              {activeEngine === 'codex' && (
-                <>
-                  <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-                    <span className="font-medium w-14">Reasoning</span>
-                    <select
-                      value={tourCodexReasoning}
-                      onChange={(e) => setTourCodexReasoning(e.target.value)}
-                      className="flex-1 text-[10px] px-1.5 py-0.5 rounded bg-muted/50 border border-border/40 text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30"
-                    >
-                      {CODEX_REASONING.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                    </select>
-                  </div>
-                  <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-                    <span className="font-medium w-14">Fast</span>
-                    <label className="flex items-center gap-1.5 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={tourCodexFast}
-                        onChange={(e) => setTourCodexFast(e.target.checked)}
-                        className="w-3 h-3 accent-primary"
-                      />
-                      <span className={tourCodexFast ? 'text-foreground' : ''}>Fast mode</span>
-                    </label>
-                  </div>
-                </>
-              )}
-            </div>
-          )}
         </div>
       )}
 

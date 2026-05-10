@@ -49,6 +49,7 @@ import {
 	getAnnotateMessageFeedbackPrompt,
 } from "./generated/prompts.js";
 import { parseAnnotateArgs } from "./generated/annotate-args.js";
+import { parseReviewArgs } from "./generated/review-args.js";
 import { resolveAtReference } from "./generated/at-reference.js";
 import {
 	hasPlanBrowserHtml,
@@ -212,6 +213,7 @@ export default function plannotator(pi: ExtensionAPI): void {
 	let checklistItems: ChecklistItem[] = [];
 	let savedState: SavedPhaseState | null = null;
 	let plannotatorConfig = {};
+	let justApprovedPlan = false;
 
 	pi.on("session_start", (_event, ctx) => {
 		currentPiSession.update(ctx);
@@ -349,7 +351,7 @@ export default function plannotator(pi: ExtensionAPI): void {
 		await applyPhaseConfig(ctx, { restoreSavedState: false });
 		persistState();
 		ctx.ui.notify(
-			"Plannotator: planning mode enabled. Write a markdown plan, then submit it for review.",
+			"Plannotator: planning mode enabled.",
 		);
 		const warning = getPlanReviewAvailabilityWarning({ hasUI: ctx.hasUI, hasPlanHtml: hasPlanBrowserHtml() });
 		if (warning) {
@@ -403,7 +405,7 @@ export default function plannotator(pi: ExtensionAPI): void {
 	});
 
 	pi.registerCommand("plannotator-review", {
-		description: "Open interactive code review for current changes or a PR URL",
+		description: "Open interactive code review for current changes or a PR URL; pass --git to force Git in JJ workspaces",
 		handler: async (args, ctx) => {
 			if (!hasReviewBrowserHtml()) {
 				ctx.ui.notify(
@@ -417,9 +419,13 @@ export default function plannotator(pi: ExtensionAPI): void {
 			const origin = getPiSessionIdentity(ctx);
 
 			try {
-				const prUrl = args?.trim() || undefined;
-				const isPRReview = prUrl?.startsWith("http://") || prUrl?.startsWith("https://");
-				const session = await startCodeReviewBrowserSession(ctx, { prUrl });
+				const reviewArgs = parseReviewArgs(args ?? "");
+				const isPRReview = reviewArgs.prUrl !== undefined;
+				const session = await startCodeReviewBrowserSession(ctx, {
+					prUrl: reviewArgs.prUrl,
+					vcsType: reviewArgs.vcsType,
+					useLocal: reviewArgs.useLocal,
+				});
 				ctx.ui.notify("Code review opened. You can keep chatting while it runs.", "info");
 				void session
 					.waitForDecision()
@@ -853,6 +859,7 @@ export default function plannotator(pi: ExtensionAPI): void {
 				await applyPhaseConfig(ctx, { restoreSavedState: true });
 				pi.appendEntry("plannotator-execute", { lastSubmittedPath });
 				persistState();
+				justApprovedPlan = true;
 				return {
 					content: [
 						{
@@ -861,6 +868,7 @@ export default function plannotator(pi: ExtensionAPI): void {
 						},
 					],
 					details: { approved: true },
+					terminate: true,
 				};
 			}
 
@@ -881,6 +889,7 @@ export default function plannotator(pi: ExtensionAPI): void {
 				await applyPhaseConfig(ctx, { restoreSavedState: true });
 				pi.appendEntry("plannotator-execute", { lastSubmittedPath });
 				persistState();
+				justApprovedPlan = true;
 
 				const doneMsg =
 					checklistItems.length > 0
@@ -900,6 +909,7 @@ export default function plannotator(pi: ExtensionAPI): void {
 							},
 						],
 						details: { approved: true, feedback: result.feedback },
+						terminate: true,
 					};
 				}
 
@@ -914,6 +924,7 @@ export default function plannotator(pi: ExtensionAPI): void {
 						},
 					],
 					details: { approved: true },
+					terminate: true,
 				};
 			}
 
@@ -1131,6 +1142,14 @@ Execute each step in order. After completing a step, include [DONE:n] in your re
 
 	// Detect execution completion
 	pi.on("agent_end", async (_event, ctx) => {
+		if (phase === "executing" && justApprovedPlan) {
+			justApprovedPlan = false;
+			setTimeout(() => {
+				pi.sendUserMessage("Continue with the approved plan.");
+			}, 0);
+			return;
+		}
+
 		if (phase !== "executing" || checklistItems.length === 0) return;
 
 		if (checklistItems.every((t) => t.completed)) {

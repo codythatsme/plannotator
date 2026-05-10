@@ -1,10 +1,13 @@
 {
   "name": "plannotator",
-  "version": "0.19.7",
+  "version": "0.19.11",
   "private": true,
   "description": "Interactive Plan Review for Claude Code - annotate plans visually, share with team, automatically send feedback",
   "author": "backnotprop",
   "license": "MIT OR Apache-2.0",
+  "bin": {
+    "plannotator": "bin/plannotator.js"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/backnotprop/plannotator.git"

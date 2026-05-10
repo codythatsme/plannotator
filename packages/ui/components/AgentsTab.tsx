@@ -4,61 +4,21 @@ import { isTerminalStatus } from '@plannotator/shared/agent-jobs';
 import { ReviewAgentsIcon } from './ReviewAgentsIcon';
 import { useAgentSettings } from '../hooks/useAgentSettings';
 import type { AgentAction, AgentEngine } from '../hooks/useAgentSettings';
-
-// --- Agent option catalogs (shared across provider + tour-engine dropdowns) ---
-
-const CLAUDE_MODELS: Array<{ value: string; label: string }> = [
-  { value: 'claude-sonnet-4-6', label: 'Sonnet 4.6' },
-  { value: 'claude-sonnet-4-6[1m]', label: 'Sonnet 4.6 (1M)' },
-  { value: 'claude-opus-4-7', label: 'Opus 4.7' },
-  { value: 'claude-opus-4-7[1m]', label: 'Opus 4.7 (1M)' },
-  { value: 'claude-opus-4-6', label: 'Opus 4.6' },
-  { value: 'claude-opus-4-6[1m]', label: 'Opus 4.6 (1M)' },
-  { value: 'claude-haiku-4-5', label: 'Haiku 4.5' },
-];
-
-const CLAUDE_EFFORT: Array<{ value: string; label: string }> = [
-  { value: 'low', label: 'Low' },
-  { value: 'medium', label: 'Medium' },
-  { value: 'high', label: 'High' },
-  { value: 'xhigh', label: 'XHigh' },
-  { value: 'max', label: 'Max' },
-];
-
-const CODEX_MODELS: Array<{ value: string; label: string }> = [
-  { value: 'gpt-5.5', label: 'GPT-5.5' },
-  { value: 'gpt-5.4', label: 'GPT-5.4' },
-  { value: 'gpt-5.3-codex', label: 'GPT-5.3 Codex' },
-  { value: 'gpt-5.3-codex-spark', label: 'GPT-5.3 Codex Spark' },
-  { value: 'gpt-5.2-codex', label: 'GPT-5.2 Codex' },
-  { value: 'gpt-5.2', label: 'GPT-5.2' },
-  { value: 'gpt-5.1-codex-max', label: 'GPT-5.1 Codex Max' },
-  { value: 'gpt-5.1-codex-mini', label: 'GPT-5.1 Codex Mini' },
-  { value: 'gpt-5.4-mini', label: 'GPT-5.4 Mini' },
-];
-
-const CODEX_REASONING: Array<{ value: string; label: string }> = [
-  { value: 'minimal', label: 'Minimal' },
-  { value: 'low', label: 'Low' },
-  { value: 'medium', label: 'Medium' },
-  { value: 'high', label: 'High' },
-  { value: 'xhigh', label: 'XHigh' },
-];
-
-// Tour Claude reuses the same effort levels but offers a different model set.
-const TOUR_CLAUDE_MODELS: Array<{ value: string; label: string }> = [
-  { value: 'sonnet', label: 'Sonnet (fast)' },
-  { value: 'opus', label: 'Opus (thorough)' },
-];
+import {
+  CLAUDE_MODELS,
+  CLAUDE_EFFORT,
+  CODEX_MODELS,
+  CODEX_REASONING,
+  ENGINE_LABEL,
+  formatModel,
+  formatEffort,
+  formatReasoning,
+  inferEngine,
+} from '../utils/agentCatalog';
 
 const ACTION_DROPDOWN_LABEL: Record<AgentAction, string> = {
   review: 'Code review',
   tour: 'Code tour',
-};
-
-const ENGINE_DROPDOWN_LABEL: Record<AgentEngine, string> = {
-  claude: 'Claude',
-  codex: 'Codex',
 };
 
 interface AgentsTabProps {
@@ -138,54 +98,28 @@ function StatusBadge({ status }: { status: AgentJobInfo['status'] }) {
 
 // --- Provider badge ---
 
-// Lookup a human label from the catalogs; fall back to the raw id.
-function catalogLabel(list: Array<{ value: string; label: string }>, value: string): string {
-  return list.find((o) => o.value === value)?.label ?? value;
-}
-
-function formatModel(provider: string, engine: string | undefined, model: string): string {
-  if (provider === 'codex' || engine === 'codex') return catalogLabel(CODEX_MODELS, model);
-  if (provider === 'tour' && engine === 'claude') return catalogLabel(TOUR_CLAUDE_MODELS, model);
-  return catalogLabel(CLAUDE_MODELS, model);
-}
-
-function formatEffort(value: string): string {
-  return catalogLabel(CLAUDE_EFFORT, value);
-}
-
-function formatReasoning(value: string): string {
-  return catalogLabel(CODEX_REASONING, value);
-}
-
 function ProviderBadge({ provider, engine, model, effort, reasoningEffort, fastMode }: { provider: string; engine?: string; model?: string; effort?: string; reasoningEffort?: string; fastMode?: boolean }) {
-  let label: string;
-  if (provider === 'tour') {
-    const engineLabel = engine === 'codex' ? 'Codex' : 'Claude';
-    const parts = [`Tour · ${engineLabel}`];
-    if (model) parts.push(formatModel(provider, engine, model));
-    if (engine === 'claude' && effort) parts.push(formatEffort(effort));
-    if (engine === 'codex' && reasoningEffort) parts.push(formatReasoning(reasoningEffort));
-    if (fastMode) parts.push('Fast');
-    label = parts.join(' · ');
-  } else if (provider === 'codex') {
-    const parts = ['Codex'];
-    if (model) parts.push(formatModel(provider, engine, model));
-    if (reasoningEffort) parts.push(formatReasoning(reasoningEffort));
-    if (fastMode) parts.push('Fast');
-    label = parts.join(' · ');
-  } else if (provider === 'claude') {
-    const parts = ['Claude'];
-    if (model) parts.push(formatModel(provider, engine, model));
-    if (effort) parts.push(formatEffort(effort));
-    label = parts.join(' · ');
-  } else {
-    label = 'Shell';
+  if (provider !== 'claude' && provider !== 'codex' && provider !== 'tour') {
+    return (
+      <span className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
+        Shell
+      </span>
+    );
   }
+
+  const resolvedEngine = inferEngine(provider, engine);
+  const parts: string[] = [];
+  parts.push(provider === 'tour' ? `Tour · ${ENGINE_LABEL[resolvedEngine]}` : ENGINE_LABEL[resolvedEngine]);
+  if (model) parts.push(formatModel(resolvedEngine, model));
+  if (resolvedEngine === 'claude' && effort) parts.push(formatEffort(effort));
+  if (resolvedEngine === 'codex' && reasoningEffort) parts.push(formatReasoning(reasoningEffort));
+  if (fastMode) parts.push('Fast');
+
   return (
     <span className={`text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded ${
       provider === 'tour' ? 'bg-accent/10 text-accent' : 'bg-muted text-muted-foreground'
     }`}>
-      {label}
+      {parts.join(' · ')}
     </span>
   );
 }
@@ -316,35 +250,22 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({
   onOpenJobDetail,
 }) => {
   const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
-  const settings = useAgentSettings();
   const {
     selectedAction,
-    reviewEngine,
-    tourEngine,
+    engine,
     claudeModel,
     claudeEffort,
     codexModel,
     codexReasoning,
     codexFast,
-    tourClaudeModel,
-    tourClaudeEffort,
-    tourCodexModel,
-    tourCodexReasoning,
-    tourCodexFast,
     setSelectedAction,
-    setReviewEngine,
-    setTourEngine,
+    setEngine,
     setClaudeModel,
     setClaudeEffort,
     setCodexModel,
     setCodexReasoning,
     setCodexFast,
-    setTourClaudeModel,
-    setTourClaudeEffort,
-    setTourCodexModel,
-    setTourCodexReasoning,
-    setTourCodexFast,
-  } = settings;
+  } = useAgentSettings();
 
   const claudeAvailable = capabilities?.providers.some((p) => p.id === 'claude' && p.available) ?? false;
   const codexAvailable = capabilities?.providers.some((p) => p.id === 'codex' && p.available) ?? false;
@@ -361,52 +282,42 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({
 
   const availableEngines = useMemo<Array<{ value: AgentEngine; label: string }>>(() => {
     const engines: Array<{ value: AgentEngine; label: string }> = [];
-    if (claudeAvailable) engines.push({ value: 'claude', label: ENGINE_DROPDOWN_LABEL.claude });
-    if (codexAvailable) engines.push({ value: 'codex', label: ENGINE_DROPDOWN_LABEL.codex });
+    if (claudeAvailable) engines.push({ value: 'claude', label: ENGINE_LABEL.claude });
+    if (codexAvailable) engines.push({ value: 'codex', label: ENGINE_LABEL.codex });
     return engines;
   }, [claudeAvailable, codexAvailable]);
 
-  const effectiveSelectedAction = availableActions.some((action) => action.value === selectedAction)
+  const effectiveSelectedAction = availableActions.some((a) => a.value === selectedAction)
     ? selectedAction
     : availableActions[0]?.value ?? selectedAction;
-  const rawActiveEngine = effectiveSelectedAction === 'tour' ? tourEngine : reviewEngine;
-  const activeEngine = availableEngines.some((engine) => engine.value === rawActiveEngine)
-    ? rawActiveEngine
-    : availableEngines[0]?.value ?? rawActiveEngine;
-  const setActiveEngine = effectiveSelectedAction === 'tour' ? setTourEngine : setReviewEngine;
+  const effectiveEngine = availableEngines.some((e) => e.value === engine)
+    ? engine
+    : availableEngines[0]?.value ?? engine;
 
-  // Reconcile selected action + engines against live capabilities. Runs when
+  // Reconcile cached selections against live capabilities. Runs when
   // capabilities change or the stored selection becomes invalid.
   useEffect(() => {
     if (!capabilities) return;
     if (!reviewAvailable && !tourAvailable) return;
 
-    if (selectedAction === 'review' && !reviewAvailable && tourAvailable) {
-      setSelectedAction('tour');
-    } else if (selectedAction === 'tour' && !tourAvailable && reviewAvailable) {
-      setSelectedAction('review');
+    if (selectedAction === 'review' && !reviewAvailable && tourAvailable) setSelectedAction('tour');
+    else if (selectedAction === 'tour' && !tourAvailable && reviewAvailable) setSelectedAction('review');
+
+    if (preferredAvailableEngine) {
+      if (engine === 'claude' && !claudeAvailable) setEngine(preferredAvailableEngine);
+      else if (engine === 'codex' && !codexAvailable) setEngine(preferredAvailableEngine);
     }
-
-    if (!preferredAvailableEngine) return;
-
-    if (reviewEngine === 'claude' && !claudeAvailable) setReviewEngine(preferredAvailableEngine);
-    else if (reviewEngine === 'codex' && !codexAvailable) setReviewEngine(preferredAvailableEngine);
-
-    if (tourEngine === 'claude' && !claudeAvailable) setTourEngine(preferredAvailableEngine);
-    else if (tourEngine === 'codex' && !codexAvailable) setTourEngine(preferredAvailableEngine);
   }, [
     capabilities,
     selectedAction,
-    reviewEngine,
-    tourEngine,
+    engine,
     reviewAvailable,
     tourAvailable,
     claudeAvailable,
     codexAvailable,
     preferredAvailableEngine,
     setSelectedAction,
-    setReviewEngine,
-    setTourEngine,
+    setEngine,
   ]);
 
   // Annotation counts per job source
@@ -435,55 +346,27 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({
     [jobs],
   );
 
-  const configFields: ConfigField[] = (() => {
-    if (effectiveSelectedAction === 'tour' && activeEngine === 'claude') {
-      return [
-        { kind: 'select', label: 'Model', value: tourClaudeModel, options: TOUR_CLAUDE_MODELS, onChange: setTourClaudeModel },
-        { kind: 'select', label: 'Effort', value: tourClaudeEffort, options: CLAUDE_EFFORT, onChange: setTourClaudeEffort },
-      ];
-    }
-    if (effectiveSelectedAction === 'tour' && activeEngine === 'codex') {
-      return [
-        { kind: 'select', label: 'Model', value: tourCodexModel, options: CODEX_MODELS, onChange: setTourCodexModel },
-        { kind: 'select', label: 'Reasoning', value: tourCodexReasoning, options: CODEX_REASONING, onChange: setTourCodexReasoning },
-        { kind: 'checkbox', label: 'Fast', toggleLabel: 'Fast mode', value: tourCodexFast, onChange: setTourCodexFast },
-      ];
-    }
-    if (activeEngine === 'codex') {
-      return [
+  const configFields: ConfigField[] = effectiveEngine === 'codex'
+    ? [
         { kind: 'select', label: 'Model', value: codexModel, options: CODEX_MODELS, onChange: setCodexModel },
         { kind: 'select', label: 'Reasoning', value: codexReasoning, options: CODEX_REASONING, onChange: setCodexReasoning },
         { kind: 'checkbox', label: 'Fast', toggleLabel: 'Fast mode', value: codexFast, onChange: setCodexFast },
+      ]
+    : [
+        { kind: 'select', label: 'Model', value: claudeModel, options: CLAUDE_MODELS, onChange: setClaudeModel },
+        { kind: 'select', label: 'Effort', value: claudeEffort, options: CLAUDE_EFFORT, onChange: setClaudeEffort },
       ];
-    }
-    return [
-      { kind: 'select', label: 'Model', value: claudeModel, options: CLAUDE_MODELS, onChange: setClaudeModel },
-      { kind: 'select', label: 'Effort', value: claudeEffort, options: CLAUDE_EFFORT, onChange: setClaudeEffort },
-    ];
-  })();
 
-  type LaunchParams = Parameters<typeof onLaunch>[0];
   const handleLaunch = () => {
-    const claudeBlock = (model: string, effort: string) => ({ model, effort });
-    const codexBlock = (model: string, reasoningEffort: string, fast: boolean) =>
-      ({ model, reasoningEffort, ...(fast && { fastMode: true }) });
+    const engineParams = effectiveEngine === 'codex'
+      ? { model: codexModel, reasoningEffort: codexReasoning, ...(codexFast && { fastMode: true }) }
+      : { model: claudeModel, effort: claudeEffort };
 
-    let params: LaunchParams;
     if (effectiveSelectedAction === 'tour') {
-      params = {
-        provider: 'tour',
-        label: 'Code Tour',
-        engine: activeEngine,
-        ...(activeEngine === 'claude'
-          ? claudeBlock(tourClaudeModel, tourClaudeEffort)
-          : codexBlock(tourCodexModel, tourCodexReasoning, tourCodexFast)),
-      };
+      onLaunch({ provider: 'tour', label: 'Code Tour', engine: effectiveEngine, ...engineParams });
     } else {
-      params = activeEngine === 'codex'
-        ? { provider: 'codex', label: 'Code Review', ...codexBlock(codexModel, codexReasoning, codexFast) }
-        : { provider: 'claude', label: 'Code Review', ...claudeBlock(claudeModel, claudeEffort) };
+      onLaunch({ provider: effectiveEngine, label: 'Code Review', ...engineParams });
     }
-    onLaunch(params);
   };
 
   return (
@@ -523,9 +406,9 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({
               field={{
                 kind: 'select',
                 label: 'Engine',
-                value: activeEngine,
+                value: effectiveEngine,
                 options: availableEngines,
-                onChange: (v) => setActiveEngine(v as AgentEngine),
+                onChange: (v) => setEngine(v as AgentEngine),
                 disabled: availableEngines.length <= 1,
               }}
             />

@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { getItem, setItem } from '../utils/storage';
+import type { AgentEngine } from '../utils/agentCatalog';
+
+export type { AgentEngine };
 
 const COOKIE_KEY = 'plannotator.agents';
 
@@ -8,11 +11,6 @@ export const DEFAULT_CLAUDE_EFFORT = 'high';
 export const DEFAULT_CODEX_MODEL = 'gpt-5.3-codex';
 export const DEFAULT_CODEX_REASONING = 'high';
 export const DEFAULT_CODEX_FAST = false;
-export const DEFAULT_TOUR_CLAUDE_MODEL = 'sonnet';
-export const DEFAULT_TOUR_CLAUDE_EFFORT = 'medium';
-export const DEFAULT_TOUR_CODEX_MODEL = 'gpt-5.3-codex';
-export const DEFAULT_TOUR_CODEX_REASONING = 'medium';
-export const DEFAULT_TOUR_CODEX_FAST = false;
 
 interface ClaudeSection {
   model: string;
@@ -25,26 +23,19 @@ interface CodexSection {
 }
 
 export type AgentAction = 'review' | 'tour';
-export type AgentEngine = 'claude' | 'codex';
 
 export interface AgentSettingsState {
   selectedAction: AgentAction;
-  reviewEngine: AgentEngine;
-  tourEngine: AgentEngine;
+  engine: AgentEngine;
   claude: ClaudeSection;
   codex: CodexSection;
-  tourClaude: ClaudeSection;
-  tourCodex: CodexSection;
 }
 
 const initialState: AgentSettingsState = {
   selectedAction: 'review',
-  reviewEngine: 'claude',
-  tourEngine: 'claude',
+  engine: 'claude',
   claude: { model: DEFAULT_CLAUDE_MODEL, perModel: {} },
   codex: { model: DEFAULT_CODEX_MODEL, perModel: {} },
-  tourClaude: { model: DEFAULT_TOUR_CLAUDE_MODEL, perModel: {} },
-  tourCodex: { model: DEFAULT_TOUR_CODEX_MODEL, perModel: {} },
 };
 
 // One-shot migration: drop any cached "none" codex reasoning entries. The
@@ -72,10 +63,11 @@ function readCookie(): AgentSettingsState {
   try {
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object') return initialState;
+    // Migrate older cookies that stored separate per-action engine selections.
+    const legacyEngine = parsed.reviewEngine === 'codex' || parsed.tourEngine === 'codex' ? 'codex' : 'claude';
     return {
       selectedAction: parsed.selectedAction === 'tour' ? 'tour' : 'review',
-      reviewEngine: parsed.reviewEngine === 'codex' ? 'codex' : 'claude',
-      tourEngine: parsed.tourEngine === 'codex' ? 'codex' : 'claude',
+      engine: parsed.engine === 'codex' || parsed.engine === 'claude' ? parsed.engine : legacyEngine,
       claude: {
         model: typeof parsed.claude?.model === 'string' ? parsed.claude.model : DEFAULT_CLAUDE_MODEL,
         perModel: parsed.claude?.perModel ?? {},
@@ -83,14 +75,6 @@ function readCookie(): AgentSettingsState {
       codex: {
         model: typeof parsed.codex?.model === 'string' ? parsed.codex.model : DEFAULT_CODEX_MODEL,
         perModel: sanitizeCodexPerModel(parsed.codex?.perModel),
-      },
-      tourClaude: {
-        model: typeof parsed.tourClaude?.model === 'string' ? parsed.tourClaude.model : DEFAULT_TOUR_CLAUDE_MODEL,
-        perModel: parsed.tourClaude?.perModel ?? {},
-      },
-      tourCodex: {
-        model: typeof parsed.tourCodex?.model === 'string' ? parsed.tourCodex.model : DEFAULT_TOUR_CODEX_MODEL,
-        perModel: sanitizeCodexPerModel(parsed.tourCodex?.perModel),
       },
     };
   } catch {
@@ -109,58 +93,40 @@ export function useAgentSettings() {
     setState((s) => ({ ...s, selectedAction }));
   }, []);
 
-  const setReviewEngine = useCallback((reviewEngine: AgentEngine) => {
-    setState((s) => ({ ...s, reviewEngine }));
-  }, []);
-
-  const setTourEngine = useCallback((engine: AgentEngine) => {
-    setState((s) => ({ ...s, tourEngine: engine }));
+  const setEngine = useCallback((engine: AgentEngine) => {
+    setState((s) => ({ ...s, engine }));
   }, []);
 
   const setClaudeModel = useCallback((model: string) => {
     setState((s) => ({ ...s, claude: { ...s.claude, model } }));
   }, []);
 
-  const patchClaude = useCallback(
-    (section: 'claude' | 'tourClaude', patch: Partial<{ effort: string }>) => {
-      setState((s) => {
-        const cur = s[section];
-        const prev = cur.perModel[cur.model] ?? { effort: '' };
-        return {
-          ...s,
-          [section]: {
-            ...cur,
-            perModel: { ...cur.perModel, [cur.model]: { ...prev, ...patch } },
-          },
-        };
-      });
-    },
-    [],
-  );
-
-  const setClaudeEffort = useCallback(
-    (effort: string) => patchClaude('claude', { effort }),
-    [patchClaude],
-  );
+  const setClaudeEffort = useCallback((effort: string) => {
+    setState((s) => {
+      const prev = s.claude.perModel[s.claude.model] ?? { effort: '' };
+      return {
+        ...s,
+        claude: {
+          ...s.claude,
+          perModel: { ...s.claude.perModel, [s.claude.model]: { ...prev, effort } },
+        },
+      };
+    });
+  }, []);
 
   const setCodexModel = useCallback((model: string) => {
     setState((s) => ({ ...s, codex: { ...s.codex, model } }));
   }, []);
 
   const patchCodex = useCallback(
-    (
-      section: 'codex' | 'tourCodex',
-      patch: Partial<{ reasoning: string; fast: boolean }>,
-      defaults: { reasoning: string; fast: boolean },
-    ) => {
+    (patch: Partial<{ reasoning: string; fast: boolean }>) => {
       setState((s) => {
-        const cur = s[section];
-        const prev = cur.perModel[cur.model] ?? defaults;
+        const prev = s.codex.perModel[s.codex.model] ?? { reasoning: DEFAULT_CODEX_REASONING, fast: DEFAULT_CODEX_FAST };
         return {
           ...s,
-          [section]: {
-            ...cur,
-            perModel: { ...cur.perModel, [cur.model]: { ...prev, ...patch } },
+          codex: {
+            ...s.codex,
+            perModel: { ...s.codex.perModel, [s.codex.model]: { ...prev, ...patch } },
           },
         };
       });
@@ -168,70 +134,27 @@ export function useAgentSettings() {
     [],
   );
 
-  const setCodexReasoning = useCallback(
-    (reasoning: string) => patchCodex('codex', { reasoning }, { reasoning: DEFAULT_CODEX_REASONING, fast: DEFAULT_CODEX_FAST }),
-    [patchCodex],
-  );
-  const setCodexFast = useCallback(
-    (fast: boolean) => patchCodex('codex', { fast }, { reasoning: DEFAULT_CODEX_REASONING, fast: DEFAULT_CODEX_FAST }),
-    [patchCodex],
-  );
-
-  const setTourClaudeModel = useCallback((model: string) => {
-    setState((s) => ({ ...s, tourClaude: { ...s.tourClaude, model } }));
-  }, []);
-
-  const setTourClaudeEffort = useCallback(
-    (effort: string) => patchClaude('tourClaude', { effort }),
-    [patchClaude],
-  );
-
-  const setTourCodexModel = useCallback((model: string) => {
-    setState((s) => ({ ...s, tourCodex: { ...s.tourCodex, model } }));
-  }, []);
-
-  const setTourCodexReasoning = useCallback(
-    (reasoning: string) => patchCodex('tourCodex', { reasoning }, { reasoning: DEFAULT_TOUR_CODEX_REASONING, fast: DEFAULT_TOUR_CODEX_FAST }),
-    [patchCodex],
-  );
-  const setTourCodexFast = useCallback(
-    (fast: boolean) => patchCodex('tourCodex', { fast }, { reasoning: DEFAULT_TOUR_CODEX_REASONING, fast: DEFAULT_TOUR_CODEX_FAST }),
-    [patchCodex],
-  );
+  const setCodexReasoning = useCallback((reasoning: string) => patchCodex({ reasoning }), [patchCodex]);
+  const setCodexFast = useCallback((fast: boolean) => patchCodex({ fast }), [patchCodex]);
 
   const claudeEffort = state.claude.perModel[state.claude.model]?.effort ?? DEFAULT_CLAUDE_EFFORT;
   const codexReasoning = state.codex.perModel[state.codex.model]?.reasoning ?? DEFAULT_CODEX_REASONING;
   const codexFast = state.codex.perModel[state.codex.model]?.fast ?? DEFAULT_CODEX_FAST;
-  const tourClaudeEffort = state.tourClaude.perModel[state.tourClaude.model]?.effort ?? DEFAULT_TOUR_CLAUDE_EFFORT;
-  const tourCodexReasoning = state.tourCodex.perModel[state.tourCodex.model]?.reasoning ?? DEFAULT_TOUR_CODEX_REASONING;
-  const tourCodexFast = state.tourCodex.perModel[state.tourCodex.model]?.fast ?? DEFAULT_TOUR_CODEX_FAST;
 
   return {
     selectedAction: state.selectedAction,
-    reviewEngine: state.reviewEngine,
-    tourEngine: state.tourEngine,
+    engine: state.engine,
     claudeModel: state.claude.model,
     claudeEffort,
     codexModel: state.codex.model,
     codexReasoning,
     codexFast,
-    tourClaudeModel: state.tourClaude.model,
-    tourClaudeEffort,
-    tourCodexModel: state.tourCodex.model,
-    tourCodexReasoning,
-    tourCodexFast,
     setSelectedAction,
-    setReviewEngine,
-    setTourEngine,
+    setEngine,
     setClaudeModel,
     setClaudeEffort,
     setCodexModel,
     setCodexReasoning,
     setCodexFast,
-    setTourClaudeModel,
-    setTourClaudeEffort,
-    setTourCodexModel,
-    setTourCodexReasoning,
-    setTourCodexFast,
   };
 }

@@ -8,6 +8,7 @@ import { CopyButton } from '../../components/CopyButton';
 import { LiveLogViewer } from '../../components/LiveLogViewer';
 import { ScrollFade } from '../../components/ScrollFade';
 import { exportReviewFeedback } from '../../utils/exportFeedback';
+import { ENGINE_LABEL, formatModel, inferEngine } from '@plannotator/ui/utils/agentCatalog';
 
 // ---------------------------------------------------------------------------
 // Panel
@@ -345,13 +346,16 @@ function StatusDot({ status }: { status: AgentJobInfo['status'] }) {
 }
 
 function ProviderPill({ provider, engine, model }: { provider: string; engine?: string; model?: string }) {
-  let label: string;
-  if (provider === 'tour') {
-    const engineLabel = engine === 'codex' ? 'Codex' : 'Claude';
-    label = model && engine !== 'codex' ? `Tour · ${engineLabel} ${model.charAt(0).toUpperCase() + model.slice(1)}` : `Tour · ${engineLabel}`;
-  } else {
-    label = provider === 'claude' ? 'Claude' : provider === 'codex' ? 'Codex' : 'Shell';
+  if (provider !== 'claude' && provider !== 'codex' && provider !== 'tour') {
+    return (
+      <span className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
+        Shell
+      </span>
+    );
   }
+  const resolvedEngine = inferEngine(provider, engine);
+  const head = provider === 'tour' ? `Tour · ${ENGINE_LABEL[resolvedEngine]}` : ENGINE_LABEL[resolvedEngine];
+  const label = model ? `${head} ${formatModel(resolvedEngine, model)}` : head;
   return (
     <span className={`text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded ${
       provider === 'tour' ? 'bg-accent/10 text-accent' : 'bg-muted text-muted-foreground'

@@ -4,6 +4,7 @@
   "private": true,
   "exports": {
     "./agents": "./agents.ts",
+    "./ai-registry": "./ai-registry.ts",
     "./compress": "./compress.ts",
     "./crypto": "./crypto.ts",
     "./feedback-templates": "./feedback-templates.ts",

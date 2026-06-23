@@ -9,6 +9,10 @@
  *   3. That's it — all UI components read from this config automatically
  */
 
+// Type-only import — erased at runtime, so this does NOT create a runtime
+// dependency from agents.ts onto ai-registry.ts (which is vendored standalone).
+import type { EngineId } from "./ai-registry";
+
 type AgentConfigEntry = {
   name: string;
   badge: string;
@@ -49,4 +53,23 @@ export function getAgentAIProviderTypes(origin: Origin | null | undefined): read
     return 'aiProviderTypes' in config ? config.aiProviderTypes : [];
   }
   return [];
+}
+
+/**
+ * Maps each batch/CLI engine (ai-registry `EngineId`) to its agent origin.
+ * The `satisfies Record<EngineId, Origin>` assertion guarantees every engine's
+ * origin is a real AGENT_CONFIG key, keeping the registry's engine space in sync
+ * with the origin space at compile time. Note engine `claude` ↔ origin
+ * `claude-code`.
+ */
+export const ENGINE_TO_ORIGIN = {
+  claude: 'claude-code',
+  codex: 'codex',
+  opencode: 'opencode',
+  pi: 'pi',
+} as const satisfies Record<EngineId, Origin>;
+
+/** Resolve a batch engine to its origin. */
+export function originForEngine(engine: EngineId): Origin {
+  return ENGINE_TO_ORIGIN[engine];
 }

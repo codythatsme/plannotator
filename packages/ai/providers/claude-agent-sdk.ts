@@ -13,6 +13,7 @@
 
 import { buildSystemPrompt, buildForkPreamble, buildEffectivePrompt } from "../context.ts";
 import { BaseSession } from "../base-session.ts";
+import { getHarness } from "@plannotator/shared/ai-registry";
 import type {
   AIProvider,
   AIProviderCapabilities,
@@ -32,7 +33,9 @@ const PROVIDER_NAME = "claude-agent-sdk";
 const DEFAULT_ALLOWED_TOOLS = ["Read", "Glob", "Grep", "WebSearch"];
 
 const DEFAULT_MAX_TURNS = 99;
-const DEFAULT_MODEL = "claude-sonnet-4-6";
+// Catalog + default sourced from the central AI registry (single source of truth).
+const CLAUDE_HARNESS = getHarness("claude");
+const DEFAULT_MODEL = CLAUDE_HARNESS.defaultModelId;
 
 // ---------------------------------------------------------------------------
 // SDK query options — typed to catch typos at compile time
@@ -68,15 +71,7 @@ export class ClaudeAgentSDKProvider implements AIProvider {
     streaming: true,
     tools: true,
   };
-  readonly models = [
-    { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6', default: true },
-    { id: 'claude-sonnet-4-6[1m]', label: 'Sonnet 4.6 (1M)' },
-    { id: 'claude-opus-4-7', label: 'Opus 4.7' },
-    { id: 'claude-opus-4-7[1m]', label: 'Opus 4.7 (1M)' },
-    { id: 'claude-opus-4-6', label: 'Opus 4.6' },
-    { id: 'claude-opus-4-6[1m]', label: 'Opus 4.6 (1M)' },
-    { id: 'claude-haiku-4-5', label: 'Haiku 4.5' },
-  ] as const;
+  readonly models = CLAUDE_HARNESS.catalog.entries;
 
   private config: ClaudeAgentSDKConfig;
 

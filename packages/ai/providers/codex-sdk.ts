@@ -12,6 +12,7 @@
 
 import { buildSystemPrompt, buildEffectivePrompt } from "../context.ts";
 import { BaseSession } from "../base-session.ts";
+import { getHarness } from "@plannotator/shared/ai-registry";
 import type {
   AIProvider,
   AIProviderCapabilities,
@@ -26,7 +27,9 @@ import type {
 // ---------------------------------------------------------------------------
 
 const PROVIDER_NAME = "codex-sdk";
-const DEFAULT_MODEL = "gpt-5.4";
+// Catalog + default sourced from the central AI registry (single source of truth).
+const CODEX_HARNESS = getHarness("codex");
+const DEFAULT_MODEL = CODEX_HARNESS.defaultModelId;
 
 // ---------------------------------------------------------------------------
 // Provider
@@ -40,15 +43,7 @@ export class CodexSDKProvider implements AIProvider {
     streaming: true,
     tools: true,
   };
-  readonly models = [
-    { id: 'gpt-5.5', label: 'GPT-5.5' },
-    { id: 'gpt-5.4', label: 'GPT-5.4', default: true },
-    { id: 'gpt-5.4-mini', label: 'GPT-5.4 Mini' },
-    { id: 'gpt-5.3-codex', label: 'GPT-5.3 Codex' },
-    { id: 'gpt-5.3-codex-spark', label: 'GPT-5.3 Codex Spark' },
-    { id: 'gpt-5.2-codex', label: 'GPT-5.2 Codex' },
-    { id: 'gpt-5.2', label: 'GPT-5.2' },
-  ] as const;
+  readonly models = CODEX_HARNESS.catalog.entries;
 
   private config: CodexSDKConfig;
 

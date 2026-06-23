@@ -2,6 +2,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { mkdir, writeFile, readFile, unlink } from "node:fs/promises";
 import { getPlannotatorDataDir } from "@plannotator/shared/data-dir";
+import { toCliModel, defaultModelId } from "@plannotator/shared/ai-registry";
 import type { DiffType } from "../vcs";
 import type { PRMetadata } from "../pr";
 import { getLocalDiffInstruction } from "../agent-review-message";
@@ -338,7 +339,7 @@ export interface TourClaudeCommandResult {
   stdinPrompt: string;
 }
 
-export function buildTourClaudeCommand(prompt: string, model: string = "sonnet", effort?: string): TourClaudeCommandResult {
+export function buildTourClaudeCommand(prompt: string, model: string = "claude-sonnet-4-6", effort?: string): TourClaudeCommandResult {
   const allowedTools = [
     "Agent", "Read", "Glob", "Grep",
     "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)",
@@ -529,11 +530,17 @@ export function createTourSession(): TourSession {
     tourChecklists,
 
     async buildCommand({ cwd, patch, diffType, options, prMetadata, config }) {
-      const engine = (typeof config?.engine === "string" ? config.engine : "claude") as "claude" | "codex";
-      const explicitModel = typeof config?.model === "string" && config.model ? config.model : null;
-      // "sonnet" is a Claude model, so we must NOT pass it to Codex when no model
-      // is explicitly selected. Leave Codex model blank and let its CLI default pick.
-      const model = explicitModel ?? (engine === "codex" ? "" : "sonnet");
+      const rawEngine = typeof config?.engine === "string" ? config.engine : "claude";
+      const engine: "claude" | "codex" = rawEngine === "codex" ? "codex" : "claude";
+      const requestedModel = typeof config?.model === "string" && config.model ? config.model : undefined;
+      // Map the requested canonical model id to the engine's CLI flag value. An
+      // unknown or cross-engine id resolves to undefined ("let the CLI pick"),
+      // which structurally prevents sending a Claude model to Codex and vice-versa.
+      // Claude needs an explicit model, so fall back to the registry default there;
+      // Codex stays blank to use its own CLI default.
+      const model =
+        toCliModel(engine, requestedModel)
+        ?? (engine === "claude" ? toCliModel("claude", defaultModelId("claude")) ?? "" : "");
       const reasoningEffort = typeof config?.reasoningEffort === "string" && config.reasoningEffort ? config.reasoningEffort : undefined;
       const effort = typeof config?.effort === "string" && config.effort ? config.effort : undefined;
       const fastMode = config?.fastMode === true;

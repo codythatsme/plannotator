@@ -8,6 +8,7 @@ import {
   buildTourUserMessage,
   parseTourStreamOutput,
   parseTourFileOutput,
+  createTourSession,
 } from "./tour-review";
 
 const stop = {
@@ -126,6 +127,44 @@ describe("buildTourUserMessage", () => {
 
     expect(message).toContain("Walk the reviewer through the following code changes");
     expect(message).toContain(patch);
+  });
+});
+
+describe("createTourSession buildCommand — canonical model resolution (Claude path)", () => {
+  const base = {
+    cwd: "/tmp/x",
+    patch: "diff --git a/x b/x",
+    diffType: "uncommitted" as const,
+    options: { hasLocalAccess: true },
+    prMetadata: undefined,
+  };
+  const modelFlag = (command: string[]) => command[command.indexOf("--model") + 1];
+
+  test("maps a canonical Claude id straight to --model", async () => {
+    const built = await createTourSession().buildCommand({
+      ...base,
+      config: { engine: "claude", model: "claude-opus-4-7" },
+    });
+    expect(built.engine).toBe("claude");
+    expect(modelFlag(built.command)).toBe("claude-opus-4-7");
+  });
+
+  test("falls back to the registry default for a legacy bare alias ('sonnet')", async () => {
+    const built = await createTourSession().buildCommand({
+      ...base,
+      config: { engine: "claude", model: "sonnet" },
+    });
+    // 'sonnet' is not a canonical catalog id → toCliModel returns undefined →
+    // Claude falls back to the registry default rather than passing a bare alias.
+    expect(modelFlag(built.command)).toBe("claude-sonnet-4-6");
+  });
+
+  test("defaults to the registry default when no model is selected", async () => {
+    const built = await createTourSession().buildCommand({
+      ...base,
+      config: { engine: "claude" },
+    });
+    expect(modelFlag(built.command)).toBe("claude-sonnet-4-6");
   });
 });
 

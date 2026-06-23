@@ -8,6 +8,7 @@
 
 import { storage } from './storage';
 import { AGENT_CONFIG, getAgentAIProviderTypes, type Origin } from '@plannotator/shared/agents';
+import { effortsFor } from '@plannotator/shared/ai-registry';
 
 const PROVIDER_KEY = 'plannotator-ai-provider';
 const MODELS_KEY = 'plannotator-ai-models';
@@ -39,12 +40,10 @@ export interface AIProviderSelection {
   model: string | null;
 }
 
-export const AI_REASONING_EFFORTS = [
-  { id: 'low', label: 'Low' },
-  { id: 'medium', label: 'Medium' },
-  { id: 'high', label: 'High' },
-  { id: 'xhigh', label: 'Max' },
-] as const;
+// Codex chat reasoning-effort options, sourced from the central AI registry so
+// chat / review / tour share ONE effort vocabulary. (The reasoning selector is
+// shown only for the codex provider — see AIConfigBar/AIProviderBar.)
+export const AI_REASONING_EFFORTS = effortsFor('codex') ?? [];
 
 export function originHasDedicatedAIProvider(origin: Origin | null | undefined): boolean {
   return getAgentAIProviderTypes(origin).length > 0;

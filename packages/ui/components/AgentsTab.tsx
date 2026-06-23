@@ -3,52 +3,21 @@ import type { AgentJobInfo, AgentCapabilities } from '../types';
 import { isTerminalStatus } from '@plannotator/shared/agent-jobs';
 import { ReviewAgentsIcon } from './ReviewAgentsIcon';
 import { useAgentSettings } from '../hooks/useAgentSettings';
+import { serializeEngine, effortsFor } from '@plannotator/shared/ai-registry';
 
-// --- Agent option catalogs (shared across provider + tour-engine dropdowns) ---
+// --- Agent option catalogs — sourced from the central AI registry so chat,
+// review, and tour all render the same models/efforts/labels. ---
 
-const CLAUDE_MODELS: Array<{ value: string; label: string }> = [
-  { value: 'claude-sonnet-4-6', label: 'Sonnet 4.6' },
-  { value: 'claude-sonnet-4-6[1m]', label: 'Sonnet 4.6 (1M)' },
-  { value: 'claude-opus-4-7', label: 'Opus 4.7' },
-  { value: 'claude-opus-4-7[1m]', label: 'Opus 4.7 (1M)' },
-  { value: 'claude-opus-4-6', label: 'Opus 4.6' },
-  { value: 'claude-opus-4-6[1m]', label: 'Opus 4.6 (1M)' },
-  { value: 'claude-haiku-4-5', label: 'Haiku 4.5' },
-];
+const toOptions = (entries: ReadonlyArray<{ id: string; label: string }>) =>
+  entries.map((e) => ({ value: e.id, label: e.label }));
 
-const CLAUDE_EFFORT: Array<{ value: string; label: string }> = [
-  { value: 'low', label: 'Low' },
-  { value: 'medium', label: 'Medium' },
-  { value: 'high', label: 'High' },
-  { value: 'xhigh', label: 'XHigh' },
-  { value: 'max', label: 'Max' },
-];
+const CLAUDE_MODELS: Array<{ value: string; label: string }> = toOptions(serializeEngine('claude').models ?? []);
+const CLAUDE_EFFORT: Array<{ value: string; label: string }> = toOptions(effortsFor('claude') ?? []);
+const CODEX_MODELS: Array<{ value: string; label: string }> = toOptions(serializeEngine('codex').models ?? []);
+const CODEX_REASONING: Array<{ value: string; label: string }> = toOptions(effortsFor('codex') ?? []);
 
-const CODEX_MODELS: Array<{ value: string; label: string }> = [
-  { value: 'gpt-5.5', label: 'GPT-5.5' },
-  { value: 'gpt-5.4', label: 'GPT-5.4' },
-  { value: 'gpt-5.3-codex', label: 'GPT-5.3 Codex' },
-  { value: 'gpt-5.3-codex-spark', label: 'GPT-5.3 Codex Spark' },
-  { value: 'gpt-5.2-codex', label: 'GPT-5.2 Codex' },
-  { value: 'gpt-5.2', label: 'GPT-5.2' },
-  { value: 'gpt-5.1-codex-max', label: 'GPT-5.1 Codex Max' },
-  { value: 'gpt-5.1-codex-mini', label: 'GPT-5.1 Codex Mini' },
-  { value: 'gpt-5.4-mini', label: 'GPT-5.4 Mini' },
-];
-
-const CODEX_REASONING: Array<{ value: string; label: string }> = [
-  { value: 'minimal', label: 'Minimal' },
-  { value: 'low', label: 'Low' },
-  { value: 'medium', label: 'Medium' },
-  { value: 'high', label: 'High' },
-  { value: 'xhigh', label: 'XHigh' },
-];
-
-// Tour Claude reuses the same effort levels but offers a different model set.
-const TOUR_CLAUDE_MODELS: Array<{ value: string; label: string }> = [
-  { value: 'sonnet', label: 'Sonnet (fast)' },
-  { value: 'opus', label: 'Opus (thorough)' },
-];
+// Tour now offers the full Claude catalog (no curated 2-model subset / "(fast)").
+const TOUR_CLAUDE_MODELS: Array<{ value: string; label: string }> = CLAUDE_MODELS;
 
 // Dropdown labels: action first, provider second. Groups visually by action —
 // you scan two "Code Review" entries and one "Code Tour" instead of three raw

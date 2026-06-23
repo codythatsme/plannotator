@@ -1,18 +1,39 @@
 import { useCallback, useEffect, useState } from 'react';
 import { getItem, setItem } from '../utils/storage';
+import { defaultModelId, defaultEffort, isKnownModel } from '@plannotator/shared/ai-registry';
 
 const COOKIE_KEY = 'plannotator.agents';
 
-export const DEFAULT_CLAUDE_MODEL = 'claude-opus-4-7';
-export const DEFAULT_CLAUDE_EFFORT = 'high';
-export const DEFAULT_CODEX_MODEL = 'gpt-5.3-codex';
-export const DEFAULT_CODEX_REASONING = 'high';
+// Defaults sourced from the central AI registry (single source of truth).
+// Uniform per harness: tour shares review's default model + effort.
+export const DEFAULT_CLAUDE_MODEL = defaultModelId('claude') ?? 'claude-sonnet-4-6';
+export const DEFAULT_CLAUDE_EFFORT = defaultEffort('claude') ?? 'high';
+export const DEFAULT_CODEX_MODEL = defaultModelId('codex') ?? 'gpt-5.4';
+export const DEFAULT_CODEX_REASONING = defaultEffort('codex') ?? 'high';
 export const DEFAULT_CODEX_FAST = false;
-export const DEFAULT_TOUR_CLAUDE_MODEL = 'sonnet';
-export const DEFAULT_TOUR_CLAUDE_EFFORT = 'medium';
-export const DEFAULT_TOUR_CODEX_MODEL = 'gpt-5.3-codex';
-export const DEFAULT_TOUR_CODEX_REASONING = 'medium';
+export const DEFAULT_TOUR_CLAUDE_MODEL = DEFAULT_CLAUDE_MODEL;
+export const DEFAULT_TOUR_CLAUDE_EFFORT = DEFAULT_CLAUDE_EFFORT;
+export const DEFAULT_TOUR_CODEX_MODEL = DEFAULT_CODEX_MODEL;
+export const DEFAULT_TOUR_CODEX_REASONING = DEFAULT_CODEX_REASONING;
 export const DEFAULT_TOUR_CODEX_FAST = false;
+
+// Cookie migration: map legacy bare aliases ('sonnet'/'opus') and deprecated
+// model ids stored in old cookies onto canonical registry ids, falling back to
+// the default when the id is no longer in the catalog.
+function migrateClaudeModel(model: string): string {
+  if (model === 'sonnet') return DEFAULT_CLAUDE_MODEL;
+  if (model === 'opus') return 'claude-opus-4-7';
+  return model;
+}
+function resolveClaudeModel(raw: unknown): string {
+  if (typeof raw !== 'string' || !raw) return DEFAULT_CLAUDE_MODEL;
+  const migrated = migrateClaudeModel(raw);
+  return isKnownModel('claude', migrated) ? migrated : DEFAULT_CLAUDE_MODEL;
+}
+function resolveCodexModel(raw: unknown): string {
+  if (typeof raw !== 'string' || !raw) return DEFAULT_CODEX_MODEL;
+  return isKnownModel('codex', raw) ? raw : DEFAULT_CODEX_MODEL;
+}
 
 interface ClaudeSection {
   model: string;
@@ -69,19 +90,19 @@ function readCookie(): AgentSettingsState {
       selectedProvider: typeof parsed.selectedProvider === 'string' ? parsed.selectedProvider : undefined,
       tourEngine: parsed.tourEngine === 'codex' ? 'codex' : 'claude',
       claude: {
-        model: typeof parsed.claude?.model === 'string' ? parsed.claude.model : DEFAULT_CLAUDE_MODEL,
+        model: resolveClaudeModel(parsed.claude?.model),
         perModel: parsed.claude?.perModel ?? {},
       },
       codex: {
-        model: typeof parsed.codex?.model === 'string' ? parsed.codex.model : DEFAULT_CODEX_MODEL,
+        model: resolveCodexModel(parsed.codex?.model),
         perModel: sanitizeCodexPerModel(parsed.codex?.perModel),
       },
       tourClaude: {
-        model: typeof parsed.tourClaude?.model === 'string' ? parsed.tourClaude.model : DEFAULT_TOUR_CLAUDE_MODEL,
+        model: resolveClaudeModel(parsed.tourClaude?.model),
         perModel: parsed.tourClaude?.perModel ?? {},
       },
       tourCodex: {
-        model: typeof parsed.tourCodex?.model === 'string' ? parsed.tourCodex.model : DEFAULT_TOUR_CODEX_MODEL,
+        model: resolveCodexModel(parsed.tourCodex?.model),
         perModel: sanitizeCodexPerModel(parsed.tourCodex?.perModel),
       },
     };

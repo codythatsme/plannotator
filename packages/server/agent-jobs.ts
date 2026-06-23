@@ -20,6 +20,7 @@ import {
   AGENT_HEARTBEAT_COMMENT,
   AGENT_HEARTBEAT_INTERVAL_MS,
 } from "@plannotator/shared/agent-jobs";
+import { computeBatchCapabilities } from "@plannotator/shared/ai-registry";
 
 export type { AgentJobInfo, AgentJobEvent, AgentCapabilities } from "@plannotator/shared/agent-jobs";
 
@@ -106,11 +107,11 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions): AgentJob
   let version = 0;
 
   // --- Capability detection (run once) ---
-  const capabilities: AgentCapability[] = [
-    { id: "claude", name: "Claude Code", available: !!Bun.which("claude") },
-    { id: "codex", name: "Codex CLI", available: !!Bun.which("codex") },
-    { id: "tour", name: "Code Tour", available: !!Bun.which("claude") || !!Bun.which("codex") },
-  ];
+  // Driven by the central AI registry so the Bun and Pi handlers can no longer
+  // drift; only the runtime `which` primitive differs between them.
+  const capabilities: AgentCapability[] = computeBatchCapabilities({
+    which: (bin) => !!Bun.which(bin),
+  });
   const capabilitiesResponse: AgentCapabilities = {
     mode,
     providers: capabilities,

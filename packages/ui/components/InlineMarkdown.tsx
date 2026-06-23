@@ -94,7 +94,7 @@ const CodeSnippetPreview: React.FC<{
         <span>{filepath.split('/').pop()}</span>
         <span className="opacity-60">{lineEnd && lineEnd !== line ? `lines ${line}–${lineEnd}` : `line ${line}`}</span>
       </div>
-      <div className="hljs overflow-auto text-[12px] leading-5 min-h-0" style={{ padding: 0, background: 'var(--color-muted, #1e293b)' }}>
+      <div className="hljs code-snippet-preview overflow-auto text-[12px] leading-5 min-h-0" style={{ padding: 0, background: 'var(--code-bg, #1e293b)' }}>
         <table className="border-collapse w-full">
           <tbody>
             {snippet.split('\n').map((_, i) => (
@@ -486,6 +486,17 @@ export const InlineMarkdown: React.FC<{
       continue;
     }
 
+    // Keep custom autolinks literal; their contents should not
+    // recurse into markdown parsing.
+    match = remaining.match(/^<([A-Za-z][A-Za-z0-9.+-]{0,31}:[^\s<>]*)>/);
+    if (match) {
+      const content = match[1];
+      parts.push(<span key={key++}>{`<${content}>`}</span>);
+      remaining = remaining.slice(match[0].length);
+      previousChar = ">";
+      continue;
+    }
+
     // Strikethrough: ~~text~~
     match = remaining.match(/^~~([\s\S]+?)~~/);
     if (match) {
@@ -717,7 +728,7 @@ export const InlineMarkdown: React.FC<{
     if (match) {
       const target = match[1].trim();
       const display = match[2]?.trim() || target;
-      const targetPath = /\.(mdx?|html?)$/i.test(target)
+      const targetPath = /\.(mdx?|txt|html?)$/i.test(target)
         ? target
         : `${target}.md`;
 
@@ -833,11 +844,11 @@ export const InlineMarkdown: React.FC<{
         continue;
       }
 
-      // Local doc: .md / .mdx / .html / .htm, optionally with #fragment.
+      // Local doc: .md / .mdx / .txt / .html / .htm, optionally with #fragment.
       // Fragment is stripped before handing to onOpenLinkedDoc (overlay has
       // no anchor-scroll support today).
       const isLocalDoc =
-        /\.(mdx?|html?)(#.*)?$/i.test(linkUrl) &&
+        /\.(mdx?|txt|html?)(#.*)?$/i.test(linkUrl) &&
         !linkUrl.startsWith("http://") &&
         !linkUrl.startsWith("https://");
       const isCodeFile = !isLocalDoc && isCodeFilePath(linkUrl);

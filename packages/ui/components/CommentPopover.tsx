@@ -5,6 +5,7 @@ import { AttachmentsButton } from './AttachmentsButton';
 import { submitHint } from '../utils/platform';
 import { useDraggable } from '../hooks/useDraggable';
 import { SparklesIcon } from './SparklesIcon';
+import { hasUnsavedCommentContent } from '../utils/commentContent';
 
 export interface CommentAskAIContext {
   kind: 'general' | 'selection';
@@ -12,6 +13,11 @@ export interface CommentAskAIContext {
   text?: string;
   sourcePath?: string;
 }
+
+export type CommentAskAIHandler = (
+  question: string,
+  context: CommentAskAIContext,
+) => boolean | void | Promise<boolean | void>;
 
 interface CommentPopoverProps {
   /** Element to anchor the popover near (re-reads position on scroll) */
@@ -37,7 +43,7 @@ interface CommentPopoverProps {
   /** Whether submitting empty text is allowed, for editors that support clearing. */
   allowEmptySubmit?: boolean;
   /** Optional Ask AI action. Absent by default so existing comment surfaces are unchanged. */
-  onAskAI?: (question: string, context: CommentAskAIContext) => void;
+  onAskAI?: CommentAskAIHandler;
   askAIContext?: CommentAskAIContext;
   askAIDisabled?: boolean;
 }
@@ -52,7 +58,7 @@ const draftStore = new Map<string, { text: string; images: ImageAttachment[] }>(
 function useCommentDraftSync(draftKey: string | undefined, text: string, images: ImageAttachment[]) {
   useEffect(() => {
     if (!draftKey) return;
-    if (text.trim() || images.length > 0) {
+    if (hasUnsavedCommentContent(text, images)) {
       draftStore.set(draftKey, { text, images });
     } else {
       draftStore.delete(draftKey);
@@ -96,8 +102,13 @@ export const CommentPopover: React.FC<CommentPopoverProps> = ({
   const [text, setText] = useState(initialDraft?.text ?? initialText);
   const [images, setImages] = useState<ImageAttachment[]>(allowImages ? initialDraft?.images ?? [] : []);
   const [position, setPosition] = useState<{ top: number; left: number; flipAbove: boolean; width: number } | null>(null);
+  // Direction of an open popover that has scrolled out of view, or null when on-screen.
+  const [offscreen, setOffscreen] = useState<'above' | 'below' | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
+  const hasUnsavedContent = hasUnsavedCommentContent(text, allowImages ? images : []);
+  const hasUnsavedContentRef = useRef(hasUnsavedContent);
+  hasUnsavedContentRef.current = hasUnsavedContent;
   const { dragPosition, dragHandleProps, wasDragged, reset: resetDrag } = useDraggable(popoverRef);
 
   useEffect(() => {
@@ -134,6 +145,28 @@ export const CommentPopover: React.FC<CommentPopoverProps> = ({
     };
   }, [anchorEl, anchorRect, mode, wasDragged]);
 
+  // Surface a "jump back" arrow when an open popover scrolls out of view.
+  // Re-measures whenever the popover repositions (position updates every scroll
+  // step in tracked mode) so the indicator is accurate at rest, plus on resize.
+  useEffect(() => {
+    if (mode !== 'popover') { setOffscreen(null); return; }
+    const measure = () => {
+      const el = popoverRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      if (rect.bottom < 8) setOffscreen('above');
+      else if (rect.top > window.innerHeight - 8) setOffscreen('below');
+      else setOffscreen(null);
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, [position, dragPosition, mode]);
+
+  const scrollToPopover = useCallback(() => {
+    anchorEl?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }, [anchorEl]);
+
   // Focus textarea on mount and mode changes
   useEffect(() => {
     const id = setTimeout(() => {
@@ -157,6 +190,7 @@ export const CommentPopover: React.FC<CommentPopoverProps> = ({
       // Don't close if clicking inside a child portal (AttachmentsButton, ImageAnnotator, etc.)
       const el = target as HTMLElement;
       if (el.closest?.('[data-popover-layer]')) return;
+      if (hasUnsavedContentRef.current) return;
       onClose();
     };
 
@@ -166,23 +200,37 @@ export const CommentPopover: React.FC<CommentPopoverProps> = ({
 
   const handleSubmit = useCallback(() => {
     const canSubmitEmpty = allowEmptySubmit && initialText.trim().length > 0;
-    if (text.trim() || (allowImages && images.length > 0) || canSubmitEmpty) {
+    if (hasUnsavedContent || canSubmitEmpty) {
       if (draftKey) draftStore.delete(draftKey);
       onSubmit(text, allowImages && images.length > 0 ? images : undefined);
     }
-  }, [text, images, onSubmit, draftKey, allowImages, allowEmptySubmit, initialText]);
+  }, [text, images, onSubmit, draftKey, allowImages, allowEmptySubmit, initialText, hasUnsavedContent]);
 
-  const handleAskAI = useCallback(() => {
+  const handleAskAI = useCallback(async () => {
     const question = text.trim();
     if (!question || !onAskAI) {
       textareaRef.current?.focus();
       return;
     }
-    onAskAI(question, askAIContext ?? {
-      kind: isGlobal ? 'general' : 'selection',
-      text: contextText,
-    });
-  }, [askAIContext, contextText, isGlobal, onAskAI, text]);
+    let accepted: boolean | void;
+    try {
+      accepted = await onAskAI(question, askAIContext ?? {
+        kind: isGlobal ? 'general' : 'selection',
+        text: contextText,
+      });
+    } catch (error) {
+      console.error('Ask AI action failed:', error);
+      textareaRef.current?.focus();
+      return;
+    }
+    if (accepted === false) {
+      textareaRef.current?.focus();
+      return;
+    }
+    if (draftKey) draftStore.delete(draftKey);
+    onDraftChange?.('', allowImages ? [] : undefined);
+    onClose();
+  }, [allowImages, askAIContext, contextText, draftKey, isGlobal, onAskAI, onClose, onDraftChange, text]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Escape') {
@@ -207,8 +255,7 @@ export const CommentPopover: React.FC<CommentPopoverProps> = ({
       : 'Comment';
 
   const canSubmit =
-    text.trim().length > 0 ||
-    (allowImages && images.length > 0) ||
+    hasUnsavedContent ||
     (allowEmptySubmit && initialText.trim().length > 0);
   const canAskAI = !!onAskAI && !askAIDisabled && text.trim().length > 0;
 
@@ -314,9 +361,22 @@ export const CommentPopover: React.FC<CommentPopoverProps> = ({
   if (!position) return null;
 
   return createPortal(
-    <div
-      ref={popoverRef}
-      data-comment-popover="true"
+    <>
+      {offscreen && (
+        <button
+          type="button"
+          data-popover-layer="true"
+          onClick={scrollToPopover}
+          title="Scroll back to your open comment"
+          className={`fixed left-1/2 -translate-x-1/2 z-[101] flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-popover border border-border shadow-lg text-xs text-muted-foreground hover:text-foreground transition-colors ${offscreen === 'above' ? 'top-3' : 'bottom-3'}`}
+        >
+          {offscreen === 'above' ? <ChevronUpIcon /> : <ChevronDownIcon />}
+          <span>Open comment</span>
+        </button>
+      )}
+      <div
+        ref={popoverRef}
+        data-comment-popover="true"
       className="fixed z-[100] bg-popover border border-border rounded-xl shadow-2xl flex flex-col"
       style={dragPosition
         ? { top: dragPosition.top, left: dragPosition.left, width: position.width }
@@ -413,12 +473,25 @@ export const CommentPopover: React.FC<CommentPopoverProps> = ({
           </button>
         </div>
       </div>
-    </div>,
+      </div>
+    </>,
     document.body
   );
 };
 
 // Icons
+
+const ChevronUpIcon = () => (
+  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 15.75l7.5-7.5 7.5 7.5" />
+  </svg>
+);
+
+const ChevronDownIcon = () => (
+  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+  </svg>
+);
 
 const ExpandIcon = () => (
   <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>

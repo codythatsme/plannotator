@@ -1,4 +1,9 @@
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/geist-mono";
 @import "tailwindcss";
+@import "@plannotator/webtui/styles.css";
+
+@plugin "tailwindcss-animate";
 
 /* Tell Tailwind where to scan for classes */
 @source "../ui/components/**/*.tsx";
@@ -7,6 +12,33 @@
 @source "./components/**/*.tsx";
 
 @import "../ui/theme.css";
+
+/* Keep xterm's scrollback layer aligned with the host app terminal palette. */
+[data-annotate-agent-terminal="true"] .webtui-shell {
+  background-color: var(--webtui-background) !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+}
+
+[data-annotate-agent-terminal="true"] .webtui-terminal,
+[data-annotate-agent-terminal="true"] .xterm,
+[data-annotate-agent-terminal="true"] .xterm-screen {
+  background-color: var(--webtui-background) !important;
+}
+
+[data-annotate-agent-terminal="true"] .webtui-shell .xterm-viewport {
+  background-color: var(--webtui-background) !important;
+  scrollbar-width: none;
+}
+
+[data-annotate-agent-terminal="true"] .webtui-shell .xterm-viewport::-webkit-scrollbar {
+  display: none;
+}
+
+[data-annotate-agent-terminal="true"] .webtui-shell .xterm-scrollbar {
+  display: none !important;
+  width: 0 !important;
+}
 
 /* Code blocks */
 pre code.hljs {
@@ -34,6 +66,13 @@ pre code.hljs .hljs-code {
 
 /* Light mode code - override hljs dark theme */
 .light pre code.hljs {
+  color: oklch(0.25 0.02 260) !important;
+}
+
+/* The code-file hover preview is a <div class="hljs">, so the pre code.hljs
+   rule above misses it. The unscoped .hljs-* token rules below already color
+   its tokens; this just supplies the matching default text color. */
+.light .code-snippet-preview {
   color: oklch(0.25 0.02 260) !important;
 }
 

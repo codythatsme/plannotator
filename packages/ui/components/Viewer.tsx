@@ -33,16 +33,17 @@ class ToolbarErrorBoundary extends React.Component<
   }
 }
 
-import { CommentPopover, type CommentAskAIContext } from './CommentPopover';
+import { CommentPopover, type CommentAskAIContext, type CommentAskAIHandler } from './CommentPopover';
 import { TaterSpriteSitting } from './TaterSpriteSitting';
 import { AttachmentsButton } from './AttachmentsButton';
+import { MessagesIcon } from './icons/MessagesIcon';
 import { GraphvizBlock } from './GraphvizBlock';
 import { MermaidBlock } from './MermaidBlock';
 import { getImageSrc } from './ImageThumbnail';
 import { isGraphvizLanguage, isMermaidLanguage } from './diagramLanguages';
 import { getIdentity } from '../utils/identity';
 import { type QuickLabel } from '../utils/quickLabels';
-import { DocBadges } from './DocBadges';
+import { DocBadges, type LinkedDocBadgeInfo } from './DocBadges';
 import { PinpointOverlay } from './PinpointOverlay';
 import { usePinpoint } from '../hooks/usePinpoint';
 import { useAnnotationHighlighter } from '../hooks/useAnnotationHighlighter';
@@ -65,6 +66,8 @@ interface ViewerProps {
   onRemoveGlobalAttachment?: (path: string) => void;
   repoInfo?: { display: string; branch?: string; host?: string } | null;
   stickyActions?: boolean;
+  /** Render the plan as a floating card on a grid background (shadow/border/padding). Default false. */
+  gridEnabled?: boolean;
   onOpenLinkedDoc?: (path: string) => void;
   onOpenCodeFile?: (path: string) => void;
   imageBaseDir?: string;
@@ -72,7 +75,7 @@ interface ViewerProps {
    *  so out-of-tree relative references (e.g. `../foo.ts` in a linked doc)
    *  resolve against the doc's own directory rather than only cwd. */
   codePathBaseDir?: string;
-  linkedDocInfo?: { filepath: string; onBack: () => void; label?: string; backLabel?: string } | null;
+  linkedDocInfo?: LinkedDocBadgeInfo | null;
   // Plan diff props
   planDiffStats?: { additions: number; deletions: number; modifications: number } | null;
   isPlanDiffActive?: boolean;
@@ -93,10 +96,19 @@ interface ViewerProps {
   archiveInfo?: { status: 'approved' | 'denied' | 'unknown'; timestamp: string; title: string } | null;
   /** Source attribution for HTML/URL annotations (e.g. URL or filename) */
   sourceInfo?: string;
+  /** Absolute path of the annotated source file for the Open-in-app control. */
+  openInAppPath?: string | null;
+  /**
+   * Message picker affordance — annotate-last mode only. Shown as a button in
+   * the sticky-top action bar so the user can switch to a different recent
+   * assistant message. Clicking opens the full picker in the left sidebar's
+   * Messages tab.
+   */
+  messagePickerInfo?: { current: number; total: number; onOpen: () => void };
   // Checkbox toggle props
   onToggleCheckbox?: (blockId: string, checked: boolean) => void;
   checkboxOverrides?: Map<string, boolean>;
-  onAskAI?: (question: string, context: CommentAskAIContext) => void;
+  onAskAI?: CommentAskAIHandler;
 }
 
 export interface ViewerHandle {
@@ -154,6 +166,7 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
   onRemoveGlobalAttachment,
   repoInfo,
   stickyActions = true,
+  gridEnabled = false,
   planDiffStats,
   isPlanDiffActive,
   onPlanDiffToggle,
@@ -169,6 +182,8 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
   actionsLabelMode = 'full',
   archiveInfo,
   sourceInfo,
+  openInAppPath,
+  messagePickerInfo,
   onToggleCheckbox,
   checkboxOverrides,
   onAskAI,
@@ -523,12 +538,12 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
       <article
         ref={containerRef}
         data-print-region="article"
-        className={`w-full bg-card rounded-xl shadow-xl p-5 md:p-8 lg:p-10 xl:p-12 relative border border-border/50 ${inputMethod === 'pinpoint' ? 'cursor-crosshair' : ''}`}
+        className={`w-full bg-card rounded-xl py-5 md:py-8 lg:py-10 xl:py-12 relative ${gridEnabled ? 'px-5 md:px-8 lg:px-10 xl:px-12 shadow-xl border border-border/50' : ''} ${inputMethod === 'pinpoint' ? 'cursor-crosshair' : ''}`}
         style={{ WebkitTouchCallout: 'none' } as React.CSSProperties}
       >
         {/* Repo info + plan diff badge + demo badge + linked doc badge + archive badge - top left */}
-        {(repoInfo || hasPreviousVersion || showDemoBadge || linkedDocInfo || archiveInfo || sourceInfo) && (
-          <div data-print-hide className="absolute top-3 left-3 md:top-4 md:left-5">
+        {(repoInfo || hasPreviousVersion || showDemoBadge || linkedDocInfo || archiveInfo || sourceInfo || openInAppPath) && (
+          <div data-print-hide className={`absolute top-3 md:top-4 ${gridEnabled ? 'left-3 md:left-5' : 'left-0'}`}>
             <DocBadges
               layout="column"
               repoInfo={repoInfo}
@@ -540,6 +555,7 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
               archiveInfo={archiveInfo}
               linkedDocInfo={linkedDocInfo}
               sourceInfo={sourceInfo}
+              openInAppPath={openInAppPath}
             />
           </div>
         )}
@@ -548,7 +564,23 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
         {stickyActions && <div ref={stickySentinelRef} className="h-0 w-0 float-right" aria-hidden="true" />}
 
         {/* Header buttons - top right */}
-        <div data-print-hide data-sticky-actions className={`${stickyActions ? 'sticky top-3' : ''} z-30 float-right flex items-start gap-1 md:gap-2 rounded-lg p-1 md:p-2 transition-colors duration-150 ${isStuck ? 'bg-card/95 backdrop-blur-sm shadow-sm' : ''} -mr-3 mt-6 md:-mr-5 md:-mt-5 lg:-mr-7 lg:-mt-7 xl:-mr-9 xl:-mt-9`}>
+        <div data-print-hide data-sticky-actions className={`${stickyActions ? 'sticky top-3' : ''} z-30 float-right flex items-start gap-1 md:gap-2 rounded-lg p-1 md:p-2 transition-colors duration-150 ${isStuck ? 'bg-card/95 backdrop-blur-sm shadow-sm' : ''} ${gridEnabled ? '-mr-3 md:-mr-5 lg:-mr-7 xl:-mr-9' : '-mr-1 md:-mr-2'} mt-6 md:-mt-5 lg:-mt-7 xl:-mt-9`}>
+          {messagePickerInfo && (
+            <button
+              onClick={messagePickerInfo.onOpen}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground bg-muted/50 hover:bg-muted rounded-md transition-colors"
+              title="Pick a different message to annotate"
+            >
+              <MessagesIcon />
+              {actionsLabelMode === 'full' && (
+                <span>Message {messagePickerInfo.current} of {messagePickerInfo.total}</span>
+              )}
+              {actionsLabelMode === 'short' && (
+                <span>{messagePickerInfo.current}/{messagePickerInfo.total}</span>
+              )}
+            </button>
+          )}
+
           {/* Attachments button */}
           {onAddGlobalAttachment && onRemoveGlobalAttachment && (
             <AttachmentsButton
@@ -936,4 +968,3 @@ function groupBlocks(blocks: Block[]): RenderGroup[] {
   }
   return groups;
 }
-

@@ -18,6 +18,7 @@ import type { FeedbackDiffContext } from '../utils/exportFeedback';
 export interface ReviewState {
   // Files & diff
   files: DiffFile[];
+  rawPatch: string;
   focusedFileIndex: number;
   focusedFilePath: string | null;
   diffStyle: 'split' | 'unified';
@@ -26,6 +27,7 @@ export interface ReviewState {
   lineDiffType?: 'word-alt' | 'word' | 'char' | 'none';
   disableLineNumbers?: boolean;
   disableBackground?: boolean;
+  expandUnchanged?: boolean;
   fontFamily?: string;
   fontSize?: string;
   /** User-selected base branch; feeds the `base` query param on file-content fetches. */
@@ -40,6 +42,9 @@ export interface ReviewState {
   /** PR/MR review scope label, e.g. "Layer diff" or "Full stack diff". */
   prReviewScope?: string;
   prDiffScope?: PRDiffScope;
+  /** Agent working directory — base for resolving repo-relative diff paths to
+   *  absolute (e.g. for the Open-in-app control). */
+  agentCwd?: string | null;
 
   // Annotations
   allAnnotations: CodeAnnotation[];
@@ -71,15 +76,25 @@ export interface ReviewState {
   activeFileSearchMatches: ReviewSearchMatch[];
   activeSearchMatchId: string | null;
   activeSearchMatch: ReviewSearchMatch | null;
+  // All-files (CodeView) search surface: the full match set + the unfiltered
+  // active match (activeSearchMatch above is filtered to the single-file panel).
+  searchMatches: ReviewSearchMatch[];
+  allFilesActiveSearchMatch: ReviewSearchMatch | null;
 
   // AI
   aiAvailable: boolean;
   aiMessages: AIChatEntry[];
   onAskAI: (question: string) => void;
+  /** File-aware Ask AI for the all-files surface. onAskAI above resolves the
+   *  file from the single-file panel's focus index, which is wrong when the
+   *  selection lives in the all-files CodeView. */
+  onAskAIForFile: (filePath: string, question: string) => void;
   isAILoading: boolean;
   onViewAIResponse: (questionId?: string) => void;
   onClickAIMarker: (questionId: string) => void;
   aiHistoryForSelection: AIChatEntry[];
+  /** File-aware variant of aiHistoryForSelection (same single-file caveat). */
+  getAIHistoryForFile: (filePath: string) => AIChatEntry[];
 
   // Agent jobs
   agentJobs: AgentJobInfo[];
@@ -96,6 +111,7 @@ export interface ReviewState {
   openDiffFile: (filePath: string) => void;
   onAllFilesVisibleFileChange: (filePath: string | null) => void;
   isAllFilesActive: boolean;
+  semanticDiffAvailable: boolean;
 
   // Tour
   openTourPanel: (jobId: string) => void;
@@ -127,4 +143,9 @@ export function useReviewState(): ReviewState {
   const ctx = useContext(ReviewStateContext);
   if (!ctx) throw new Error('useReviewState must be used within ReviewStateProvider');
   return ctx;
+}
+
+/** Like useReviewState but returns null instead of throwing — for components that may render outside the provider. */
+export function useReviewStateOptional(): ReviewState | null {
+  return useContext(ReviewStateContext);
 }

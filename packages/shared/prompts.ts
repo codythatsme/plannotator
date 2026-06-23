@@ -18,6 +18,7 @@ export const PLAN_TOOL_NAMES: Record<PromptRuntime, string> = {
   "claude-code": "ExitPlanMode",
   amp: "ExitPlanMode",
   droid: "ExitPlanMode",
+  "kiro-cli": "ExitPlanMode",
   opencode: "submit_plan",
   "copilot-cli": "exit_plan_mode",
   pi: "plannotator_submit_plan",
@@ -38,7 +39,7 @@ export function buildPlanFileRule(toolName: string, planFilePath?: string): stri
 
 export const DEFAULT_REVIEW_APPROVED_PROMPT = "# Code Review\n\nCode review completed — no changes requested.";
 
-export const DEFAULT_REVIEW_DENIED_SUFFIX = "\nThe reviewer has identified issues above. You must address all of them.";
+export const DEFAULT_REVIEW_DENIED_SUFFIX = "\n\nThis feedback came from review. Please triage it and verify it against the code and then come back to me with your thoughts on the findings. Do not change any code until we've discussed the findings.";
 
 export const DEFAULT_PLAN_DENIED_PROMPT =
   "YOUR PLAN WAS NOT APPROVED.\n\nYou MUST revise the plan to address ALL of the feedback below before calling {{toolName}} again.\n\nRules:\n{{planFileRule}}- Do not resubmit the same plan unchanged.\n- Do NOT change the plan title (first # heading) unless the user explicitly asks you to.\n\n{{feedback}}";
@@ -111,22 +112,20 @@ export function getReviewApprovedPrompt(
   });
 }
 
-const REVIEW_DENIED_RUNTIME_DEFAULTS: Partial<Record<PromptRuntime, string>> = {
-  opencode: "\n\nPlease address this feedback.",
-  pi: "\n\nPlease address this feedback.",
-};
-
 export function getReviewDeniedSuffix(
   runtime?: PromptRuntime | null,
   config?: PlannotatorConfig,
 ): string {
+  // Intentionally no per-runtime defaults: every agent gets the same
+  // triage-first instruction so none of them start coding off raw review
+  // feedback. Per-runtime customization stays available via config
+  // (prompts.review.runtimes.<runtime>.denied).
   return getConfiguredPrompt({
     section: "review",
     key: "denied",
     runtime,
     config,
     fallback: DEFAULT_REVIEW_DENIED_SUFFIX,
-    runtimeFallbacks: REVIEW_DENIED_RUNTIME_DEFAULTS,
   });
 }
 

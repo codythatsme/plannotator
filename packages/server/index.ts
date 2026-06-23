@@ -44,9 +44,10 @@ import { detectProjectName } from "./project";
 import { loadConfig, saveConfig, detectGitUser, getServerConfig } from "./config";
 import { readImprovementHook, getImprovementHookExpectedPath } from "@plannotator/shared/improvement-hooks";
 import { composeImproveContext } from "@plannotator/shared/pfm-reminder";
-import { handleImage, handleUpload, handleAgents, handleServerReady, handleDraftSave, handleDraftLoad, handleDraftDelete, handleFavicon, type OpencodeClient } from "./shared-handlers";
+import { handleImage, handleUpload, handleAgents, handleServerReady, handleDraftSave, handleDraftLoad, handleDraftDelete, handleFavicon, handleSaveNotes, readDraftGenerationFromBody, type OpencodeClient } from "./shared-handlers";
 import { contentHash, deleteDraft } from "./draft";
 import { handleDoc, handleDocExists, handleObsidianVaults, handleObsidianFiles, handleObsidianDoc, handleFileBrowserFiles } from "./reference-handlers";
+import { handleFileBrowserFilesStream } from "./reference-watch";
 import { warmFileListCache } from "@plannotator/shared/resolve-file";
 import { createEditorAnnotationHandler } from "./editor-annotations";
 import { createExternalAnnotationHandler } from "./external-annotations";
@@ -215,6 +216,9 @@ export async function startPlannotatorServer(
       server = Bun.serve({
         hostname: getServerHostname(),
         port: configuredPort,
+        // Bun's default 10s idleTimeout kills AI SSE streams that stall
+        // between bytes (e.g. while a permission prompt waits on the user).
+        idleTimeout: 0,
 
         async fetch(req, server) {
           const url = new URL(req.url);
@@ -393,6 +397,13 @@ export async function startPlannotatorServer(
             return handleFileBrowserFiles(req);
           }
 
+          // API: Watch file browser roots and refresh the tree/status snapshot on changes
+          if (url.pathname === "/api/reference/files/stream" && req.method === "GET") {
+            return handleFileBrowserFilesStream(req, {
+              disableIdleTimeout: () => server.timeout(req, 0),
+            });
+          }
+
           // API: Get available agents (OpenCode only)
           if (url.pathname === "/api/agents") {
             return handleAgents(options.opencodeClient);
@@ -401,7 +412,7 @@ export async function startPlannotatorServer(
           // API: Annotation draft persistence
           if (url.pathname === "/api/draft") {
             if (req.method === "POST") return handleDraftSave(req, draftKey);
-            if (req.method === "DELETE") return handleDraftDelete(draftKey);
+            if (req.method === "DELETE") return handleDraftDelete(draftKey, req);
             return handleDraftLoad(draftKey);
           }
 
@@ -434,39 +445,7 @@ export async function startPlannotatorServer(
 
           // API: Save to notes (decoupled from approve/deny)
           if (url.pathname === "/api/save-notes" && req.method === "POST") {
-            const results: { obsidian?: IntegrationResult; bear?: IntegrationResult; octarine?: IntegrationResult } = {};
-
-            try {
-              const body = (await req.json()) as {
-                obsidian?: ObsidianConfig;
-                bear?: BearConfig;
-                octarine?: OctarineConfig;
-              };
-
-              // Run integrations in parallel — they're independent
-              const promises: Promise<void>[] = [];
-              if (body.obsidian?.vaultPath && body.obsidian?.plan) {
-                promises.push(saveToObsidian(body.obsidian).then(r => { results.obsidian = r; }));
-              }
-              if (body.bear?.plan) {
-                promises.push(saveToBear(body.bear).then(r => { results.bear = r; }));
-              }
-              if (body.octarine?.plan && body.octarine?.workspace) {
-                promises.push(saveToOctarine(body.octarine).then(r => { results.octarine = r; }));
-              }
-              await Promise.allSettled(promises);
-
-              for (const [name, result] of Object.entries(results)) {
-                if (!result?.success && result) {
-                  console.error(`[${name}] Save failed: ${result.error}`);
-                }
-              }
-            } catch (err) {
-              console.error(`[Save Notes] Error:`, err);
-              return Response.json({ error: "Save failed" }, { status: 500 });
-            }
-
-            return Response.json({ ok: true, results });
+            return handleSaveNotes(req);
           }
 
           // API: Approve plan
@@ -477,6 +456,7 @@ export async function startPlannotatorServer(
             let requestedPermissionMode: string | undefined;
             let planSaveEnabled = true; // default to enabled for backwards compat
             let planSaveCustomPath: string | undefined;
+            let draftGeneration: number | undefined;
             try {
               const body = (await req.json().catch(() => ({}))) as {
                 obsidian?: ObsidianConfig;
@@ -486,7 +466,9 @@ export async function startPlannotatorServer(
                 agentSwitch?: string;
                 planSave?: { enabled: boolean; customPath?: string };
                 permissionMode?: string;
+                draftGeneration?: number;
               };
+              draftGeneration = readDraftGenerationFromBody(body);
 
               // Capture feedback if provided (for "approve with notes")
               if (body.feedback) {
@@ -544,7 +526,7 @@ export async function startPlannotatorServer(
             }
 
             // Clean up draft on successful submit
-            deleteDraft(draftKey);
+            deleteDraft(draftKey, draftGeneration);
 
             // Use permission mode from client request if provided, otherwise fall back to hook input
             const effectivePermissionMode = requestedPermissionMode || permissionMode;
@@ -557,11 +539,14 @@ export async function startPlannotatorServer(
             let feedback = "Plan rejected by user";
             let planSaveEnabled = true; // default to enabled for backwards compat
             let planSaveCustomPath: string | undefined;
+            let draftGeneration: number | undefined;
             try {
               const body = (await req.json()) as {
                 feedback?: string;
                 planSave?: { enabled: boolean; customPath?: string };
+                draftGeneration?: number;
               };
+              draftGeneration = readDraftGenerationFromBody(body);
               feedback = body.feedback || feedback;
 
               // Capture plan save settings
@@ -580,7 +565,7 @@ export async function startPlannotatorServer(
               savedPath = saveFinalSnapshot(slug, "denied", plan, feedback, planSaveCustomPath);
             }
 
-            deleteDraft(draftKey);
+            deleteDraft(draftKey, draftGeneration);
             resolveDecision({ approved: false, feedback, savedPath });
             return Response.json({ ok: true, savedPath });
           }

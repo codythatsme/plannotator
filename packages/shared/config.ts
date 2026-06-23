@@ -24,6 +24,7 @@ export interface DiffOptions {
   fontSize?: string;
   tabSize?: number;
   hideWhitespace?: boolean;
+  expandUnchanged?: boolean;
   defaultDiffType?: DefaultDiffType;
   lineBgIntensity?: DiffLineBgIntensity;
 }
@@ -41,6 +42,7 @@ export type PromptRuntime =
   | "claude-code"
   | "amp"
   | "droid"
+  | "kiro-cli"
   | "opencode"
   | "copilot-cli"
   | "pi"
@@ -126,6 +128,20 @@ export interface PlannotatorConfig {
    * Read by the `improve-context` PreToolUse handler. Default: false.
    */
   pfmReminder?: boolean;
+  /**
+   * Open Plannotator in a Glimpse native window when available.
+   * When true (default), the server spawns `glimpseui` if it is on PATH,
+   * no explicit browser is configured, and the session is local.
+   * Set to false to always use the system browser even when Glimpse is installed.
+   */
+  glimpse?: boolean;
+  /**
+   * Control URL sharing (Share tab, copy link, short URLs, import review).
+   * Defaults to enabled. Set to "disabled" to hide all sharing UI — useful
+   * for teams working with sensitive plans. Mirrors the PLANNOTATOR_SHARE
+   * env var value, which takes precedence over this setting.
+   */
+  share?: "enabled" | "disabled";
 }
 
 const CONFIG_DIR = getPlannotatorDataDir();
@@ -215,6 +231,21 @@ export function resolveDefaultDiffType(cfg?: PlannotatorConfig): DefaultDiffType
 }
 
 /**
+ * Resolve whether to use Glimpse native window.
+ *
+ * Priority (highest wins):
+ *   PLANNOTATOR_GLIMPSE env var  →  config.glimpse  →  default true
+ */
+export function resolveUseGlimpse(config: PlannotatorConfig): boolean {
+  const envVal = process.env.PLANNOTATOR_GLIMPSE;
+  if (envVal !== undefined) {
+    return envVal === "1" || envVal.toLowerCase() === "true";
+  }
+  if (config.glimpse !== undefined) return config.glimpse;
+  return true;
+}
+
+/**
  * Resolve whether to use Jina Reader for URL annotation.
  *
  * Priority (highest wins):
@@ -234,5 +265,18 @@ export function resolveUseJina(cliNoJina: boolean, config: PlannotatorConfig): b
   if (config.jina !== undefined) return config.jina;
 
   // Default: enabled
+  return true;
+}
+
+/**
+ * Resolve whether URL sharing is enabled.
+ *
+ * Priority (highest wins):
+ *   PLANNOTATOR_SHARE env var  →  config.share  →  default true
+ */
+export function resolveSharingEnabled(config: PlannotatorConfig): boolean {
+  const envVal = process.env.PLANNOTATOR_SHARE;
+  if (envVal !== undefined) return envVal !== "disabled";
+  if (config.share !== undefined) return config.share !== "disabled";
   return true;
 }

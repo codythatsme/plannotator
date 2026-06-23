@@ -21,6 +21,8 @@ import {
 	handleDraftRequest,
 	handleFavicon,
 	handleImageRequest,
+	readDraftGenerationFromBody,
+	handleSaveNotesRequest,
 	handleUploadRequest,
 } from "./handlers.js";
 import { html, json, parseBody, requestUrl } from "./helpers.js";
@@ -37,7 +39,7 @@ import {
 } from "./integrations.js";
 import { listenOnPort } from "./network.js";
 
-import { loadConfig, saveConfig, detectGitUser, getServerConfig } from "../generated/config.js";
+import { loadConfig, saveConfig, detectGitUser, getServerConfig, resolveSharingEnabled } from "../generated/config.js";
 import { readImprovementHook, getImprovementHookExpectedPath } from "../generated/improvement-hooks.js";
 import { composeImproveContext } from "../generated/pfm-reminder.js";
 import { detectProjectName, getRepoInfo } from "./project.js";
@@ -49,6 +51,7 @@ import {
 	handleObsidianFilesRequest,
 	handleObsidianVaultsRequest,
 } from "./reference.js";
+import { handleFileBrowserStreamRequest } from "./file-browser-watch.js";
 import { warmFileListCache } from "../generated/resolve-file.js";
 
 export interface PlanReviewDecision {
@@ -85,7 +88,7 @@ export async function startPlanReviewServer(options: {
 	void warmFileListCache(process.cwd(), "code");
 	const gitUser = detectGitUser();
 	const sharingEnabled =
-		options.sharingEnabled ?? process.env.PLANNOTATOR_SHARE !== "disabled";
+		options.sharingEnabled ?? resolveSharingEnabled(loadConfig());
 	const shareBaseUrl =
 		(options.shareBaseUrl ?? process.env.PLANNOTATOR_SHARE_URL) || undefined;
 	const pasteApiUrl =
@@ -282,7 +285,10 @@ export async function startPlanReviewServer(options: {
 		} else if (url.pathname === "/api/reference/obsidian/doc" && req.method === "GET") {
 			handleObsidianDocRequest(res, url);
 		} else if (url.pathname === "/api/reference/files" && req.method === "GET") {
-			handleFileBrowserRequest(res, url);
+			await handleFileBrowserRequest(res, url);
+		} else if (url.pathname === "/api/reference/files/stream" && req.method === "GET") {
+			handleFileBrowserStreamRequest(req, res, url);
+			return;
 		} else if (
 			url.pathname === "/api/plan/vscode-diff" &&
 			req.method === "POST"
@@ -322,49 +328,7 @@ export async function startPlanReviewServer(options: {
 		} else if (url.pathname === "/favicon.svg") {
 			handleFavicon(res);
 		} else if (url.pathname === "/api/save-notes" && req.method === "POST") {
-			const results: {
-				obsidian?: IntegrationResult;
-				bear?: IntegrationResult;
-				octarine?: IntegrationResult;
-			} = {};
-			try {
-				const body = await parseBody(req);
-				const promises: Promise<void>[] = [];
-				const obsConfig = body.obsidian as ObsidianConfig | undefined;
-				const bearConfig = body.bear as BearConfig | undefined;
-				const octConfig = body.octarine as OctarineConfig | undefined;
-				if (obsConfig?.vaultPath && obsConfig?.plan) {
-					promises.push(
-						saveToObsidian(obsConfig).then((r) => {
-							results.obsidian = r;
-						}),
-					);
-				}
-				if (bearConfig?.plan) {
-					promises.push(
-						saveToBear(bearConfig).then((r) => {
-							results.bear = r;
-						}),
-					);
-				}
-				if (octConfig?.plan && octConfig?.workspace) {
-					promises.push(
-						saveToOctarine(octConfig).then((r) => {
-							results.octarine = r;
-						}),
-					);
-				}
-				await Promise.allSettled(promises);
-				for (const [name, result] of Object.entries(results)) {
-					if (!result?.success && result)
-						console.error(`[${name}] Save failed: ${result.error}`);
-				}
-			} catch (err) {
-				console.error(`[Save Notes] Error:`, err);
-				json(res, { error: "Save failed" }, 500);
-				return;
-			}
-			json(res, { ok: true, results });
+			await handleSaveNotesRequest(req, res);
 		} else if (url.pathname === "/api/approve" && req.method === "POST") {
 			if (decisionSettled) {
 				json(res, { ok: true, duplicate: true });
@@ -375,8 +339,10 @@ export async function startPlanReviewServer(options: {
 			let requestedPermissionMode: string | undefined;
 			let planSaveEnabled = true;
 			let planSaveCustomPath: string | undefined;
+			let draftGeneration: number | undefined;
 			try {
 				const body = await parseBody(req);
+				draftGeneration = readDraftGenerationFromBody(body);
 				if (body.feedback) feedback = body.feedback as string;
 				if (body.agentSwitch) agentSwitch = body.agentSwitch as string;
 				if (body.permissionMode)
@@ -434,7 +400,7 @@ export async function startPlanReviewServer(options: {
 					planSaveCustomPath,
 				);
 			}
-			deleteDraft(draftKey);
+			deleteDraft(draftKey, draftGeneration);
 			const effectivePermissionMode = requestedPermissionMode || options.permissionMode;
 			publishDecision({
 				approved: true,
@@ -452,8 +418,10 @@ export async function startPlanReviewServer(options: {
 			let feedback = "Plan rejected by user";
 			let planSaveEnabled = true;
 			let planSaveCustomPath: string | undefined;
+			let draftGeneration: number | undefined;
 			try {
 				const body = await parseBody(req);
+				draftGeneration = readDraftGenerationFromBody(body);
 				feedback = (body.feedback as string) || feedback;
 				if (body.planSave !== undefined) {
 					const ps = body.planSave as { enabled: boolean; customPath?: string };
@@ -474,7 +442,7 @@ export async function startPlanReviewServer(options: {
 					planSaveCustomPath,
 				);
 			}
-			deleteDraft(draftKey);
+			deleteDraft(draftKey, draftGeneration);
 			publishDecision({ approved: false, feedback, savedPath });
 			json(res, { ok: true, savedPath });
 		} else {

@@ -70,6 +70,7 @@ export const ReviewDiffPanel: React.FC<IDockviewPanelProps> = (props) => {
         patch={file.patch}
         filePath={file.path}
         oldPath={file.oldPath}
+        status={file.status}
         reviewBase={state.reviewBase}
         prUrl={state.prMetadata?.url}
         prDiffScope={state.prDiffScope}
@@ -80,6 +81,7 @@ export const ReviewDiffPanel: React.FC<IDockviewPanelProps> = (props) => {
         lineDiffType={state.lineDiffType}
         disableLineNumbers={state.disableLineNumbers}
         disableBackground={state.disableBackground}
+        expandUnchanged={state.expandUnchanged}
         fontFamily={state.fontFamily}
         fontSize={state.fontSize}
         annotations={fileAnnotations}

@@ -11,6 +11,11 @@ import type { UIPreferences } from '@plannotator/ui/utils/uiPreferences';
 import { SparklesIcon } from '@plannotator/ui/components/SparklesIcon';
 
 interface AppHeaderProps {
+  /** HTML annotate surface: show a Hide/Show annotation-tools toggle in the header,
+   *  so hiding leaves the rendered HTML completely free of overlay controls. */
+  htmlSurface?: boolean;
+  htmlToolsHidden?: boolean;
+  onToggleHtmlTools?: () => void;
   // Mode flags (stable after mount)
   isApiMode: boolean;
   annotateMode: boolean;
@@ -86,6 +91,9 @@ interface AppHeaderProps {
 }
 
 export const AppHeader = React.memo<AppHeaderProps>(({
+  htmlSurface,
+  htmlToolsHidden,
+  onToggleHtmlTools,
   isApiMode,
   annotateMode,
   archiveMode,
@@ -150,7 +158,19 @@ export const AppHeader = React.memo<AppHeaderProps>(({
 }) => {
   return (
     <header data-app-header="true" className="h-12 flex items-center justify-between px-2 md:px-4 border-b border-border/50 bg-card/50 backdrop-blur-xl sticky top-0 z-[50]">
-      <AppHeaderLogo />
+      <div className="flex items-center gap-2">
+        <AppHeaderLogo />
+        {htmlSurface && onToggleHtmlTools && (
+          <button
+            type="button"
+            onClick={onToggleHtmlTools}
+            className="ml-1 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors px-1.5 py-1 rounded cursor-pointer"
+            title={htmlToolsHidden ? 'Show annotation tools' : 'Hide annotation tools'}
+          >
+            {htmlToolsHidden ? 'Show tools' : 'Hide tools'}
+          </button>
+        )}
+      </div>
 
       <div className="flex items-center gap-1 md:gap-2">
         {/* Bot callback buttons — only shown when ?cb=&ct= params are present */}
@@ -229,8 +249,8 @@ export const AppHeader = React.memo<AppHeaderProps>(({
                     onClick={onAnnotateFeedback}
                     disabled={isSubmitting || isExiting}
                     isLoading={isSubmitting}
-                    label="Send Annotations"
-                    title="Send Annotations"
+                    label="Send Feedback"
+                    title="Send Feedback"
                   />
                 )}
               </>
@@ -265,7 +285,7 @@ export const AppHeader = React.memo<AppHeaderProps>(({
                     <div className="absolute top-full right-0 mt-2 px-3 py-2 bg-popover border border-border rounded-lg shadow-xl text-xs text-foreground w-56 text-center opacity-0 invisible group-hover/approve:opacity-100 group-hover/approve:visible transition-all pointer-events-none z-50">
                       <div className="absolute bottom-full right-4 border-4 border-transparent border-b-border" />
                       <div className="absolute bottom-full right-4 mt-px border-4 border-transparent border-b-popover" />
-                      {agentName} doesn't support feedback on approval. Your annotations won't be seen.
+                      {agentName} doesn't support feedback on approval. Your feedback won't be seen.
                     </div>
                   )}
                 </div>

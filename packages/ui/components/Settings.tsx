@@ -237,6 +237,7 @@ const ReviewDisplayTab: React.FC = () => {
   const diffShowBackground = useConfigValue('diffShowBackground');
   const diffLineBgIntensity = useConfigValue('diffLineBgIntensity');
   const diffHideWhitespace = useConfigValue('diffHideWhitespace');
+  const diffExpandUnchanged = useConfigValue('diffExpandUnchanged');
   const diffFontFamily = useConfigValue('diffFontFamily');
   const diffFontSize = useConfigValue('diffFontSize');
 
@@ -380,6 +381,16 @@ const ReviewDisplayTab: React.FC = () => {
           <SegmentedControl options={LINE_BG_INTENSITY_OPTIONS} value={diffLineBgIntensity} onChange={(v) => configStore.set('diffLineBgIntensity', v)} />
         </div>
       )}
+
+      <div className="border-t border-border" />
+
+      {/* Expand Unchanged Regions */}
+      <ToggleSwitch
+        checked={diffExpandUnchanged}
+        onChange={(v) => configStore.set('diffExpandUnchanged', v)}
+        label="Expand Unchanged Regions"
+        description="Show full file content around changes by default"
+      />
 
       <div className="border-t border-border" />
 
@@ -612,6 +623,7 @@ export const Settings: React.FC<SettingsProps> = ({ taterMode, onTaterModeChange
     return () => document.removeEventListener('keydown', handler);
   }, [themePreview]);
   const [activeTab, setActiveTab] = useState<SettingsTab>('general');
+  const gridEnabled = useConfigValue('gridEnabled');
   const [identity, setIdentity] = useState('');
   const [obsidian, setObsidian] = useState<ObsidianSettings>({
     enabled: false,
@@ -1184,6 +1196,21 @@ export const Settings: React.FC<SettingsProps> = ({ taterMode, onTaterModeChange
                             uiPrefs.stickyActionsEnabled ? 'translate-x-6' : 'translate-x-1'
                           }`}
                         />
+                      </button>
+                    </div>
+
+                    <div className="border-t border-border" />
+
+                    {/* Grid Background */}
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="text-sm font-medium">Grid Background</div>
+                        <div className="text-xs text-muted-foreground">Show the plan as a floating card on a grid</div>
+                      </div>
+                      <button role="switch" aria-checked={gridEnabled}
+                        onClick={() => configStore.set('gridEnabled', !gridEnabled)}
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${gridEnabled ? 'bg-primary' : 'bg-muted'}`}>
+                        <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform ${gridEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
                       </button>
                     </div>
 
